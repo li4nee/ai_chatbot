@@ -23,6 +23,9 @@ export class Knowledge {
   @JoinColumn({ name: 'botId' })
   bot: Bot;
 
+  @Column('float8', { array: true, nullable: true })
+  embedding: number[];
+
   @CreateDateColumn()
   createdAt: Date;
 }
