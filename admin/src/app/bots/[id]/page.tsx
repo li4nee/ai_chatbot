@@ -11,6 +11,8 @@ interface Bot {
   displayName: string;
   themeColor: string;
   welcomeMessage: string;
+  pricePer1kTokens: number | string;
+  pricePerMessage: number | string;
   apiKey: string;
   isHumanActive: boolean;
   createdAt: string;
@@ -59,6 +61,14 @@ export default function BotDetailPage() {
   const [editThemeColor, setEditThemeColor] = useState('');
   const [editWelcomeMessage, setEditWelcomeMessage] = useState('');
 
+  // Pricing settings
+  const [editingPricing, setEditingPricing] = useState(false);
+  const [editPricePer1k, setEditPricePer1k] = useState('0');
+  const [editPricePerMessage, setEditPricePerMessage] = useState('0');
+
+  // History filtering
+  const [historyFilter, setHistoryFilter] = useState('');
+
   // Bot name editing
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState('');
@@ -66,6 +76,10 @@ export default function BotDetailPage() {
   // Knowledge editing
   const [editingKnowledgeId, setEditingKnowledgeId] = useState<string | null>(null);
   const [editKnowledgeContent, setEditKnowledgeContent] = useState('');
+
+  // PDF Upload
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -94,6 +108,26 @@ export default function BotDetailPage() {
       setEditDisplayName(data.displayName);
       setEditThemeColor(data.themeColor);
       setEditWelcomeMessage(data.welcomeMessage);
+      setEditPricePer1k(String(data.pricePer1kTokens || 0));
+      setEditPricePerMessage(String(data.pricePerMessage || 0));
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const updatePricing = async () => {
+    try {
+      const data = await api(`/bots/${botId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          pricePer1kTokens: parseFloat(editPricePer1k),
+          pricePerMessage: parseFloat(editPricePerMessage),
+        }),
+        token: token!,
+      });
+      setBot(data);
+      setEditingPricing(false);
+      showSuccess('Pricing settings updated');
     } catch (err: any) {
       setError(err.message);
     }
@@ -139,11 +173,65 @@ export default function BotDetailPage() {
   };
 
   const deleteKnowledge = async (id: string) => {
+    if (!id) return;
+    if (!window.confirm('Are you sure you want to delete this knowledge chunk?')) return;
+    
     try {
       await api(`/knowledge/${id}`, { method: 'DELETE', token: token! });
       fetchKnowledge();
+      showSuccess('Knowledge deleted');
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  const clearAllKnowledge = async () => {
+    if (!window.confirm('WARNING: This will permanently delete ALL knowledge for this bot. Are you sure?')) return;
+    
+    try {
+      await api(`/bots/${botId}/knowledge`, { method: 'DELETE', token: token! });
+      fetchKnowledge();
+      showSuccess('All knowledge cleared');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleFileUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file) return;
+
+    setUploading(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // We use standard fetch here because our api helper might not handle FormData correctly
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/bots/${botId}/knowledge/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Upload failed');
+      }
+
+      setFile(null);
+      // Reset file input
+      const fileInput = document.getElementById('pdf-upload') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+
+      fetchKnowledge();
+      showSuccess('PDF uploaded and processed successfully');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -390,8 +478,17 @@ export default function BotDetailPage() {
 
         {/* Usage Metrics */}
         <div className="section">
-          <div className="section-title">Usage Metrics</div>
-          <div className="card-grid" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div className="section-title" style={{ marginBottom: 0 }}>Usage Metrics</div>
+            <button 
+              className="btn btn-outline btn-sm"
+              onClick={() => setEditingPricing(true)}
+            >
+              ⚙️ Configure Pricing
+            </button>
+          </div>
+
+          <div className="card-grid" style={{ marginBottom: 24 }}>
             <div className="card">
               <div className="card-meta">This Month</div>
               <div className="card-title" style={{ fontSize: 24, margin: '8px 0' }}>
@@ -406,38 +503,116 @@ export default function BotDetailPage() {
               </div>
               <div className="card-meta">Approximate consumption</div>
             </div>
+            <div className="card" style={{ border: '1px solid rgba(16, 185, 129, 0.2)', background: 'rgba(16, 185, 129, 0.05)' }}>
+              <div className="card-meta" style={{ color: '#10b981' }}>Estimated Cost</div>
+              <div className="card-title" style={{ fontSize: 24, margin: '8px 0', color: '#10b981' }}>
+                ${((Number(usage?.current.tokenCount || 0) / 1000) * Number(bot?.pricePer1kTokens || 0) + 
+                   Number(usage?.current.messageCount || 0) * Number(bot?.pricePerMessage || 0)).toFixed(2)}
+              </div>
+              <div className="card-meta">Based on current rates</div>
+            </div>
           </div>
 
-          {usage && usage.history.length > 1 && (
+          {usage && usage.history.length > 0 && (
             <div className="card">
-              <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'block', marginBottom: 12 }}>
-                Consumption History
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <label style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  Consumption History
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Filter by month..." 
+                  className="form-input"
+                  style={{ width: '150px', padding: '4px 8px', fontSize: '12px' }}
+                  value={historyFilter}
+                  onChange={(e) => setHistoryFilter(e.target.value)}
+                />
+              </div>
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>
                     <th style={{ padding: '8px 0', color: 'var(--text-secondary)' }}>Month</th>
                     <th style={{ padding: '8px 0', color: 'var(--text-secondary)' }}>Messages</th>
                     <th style={{ padding: '8px 0', color: 'var(--text-secondary)' }}>Tokens</th>
+                    <th style={{ padding: '8px 0', color: 'var(--text-secondary)', textAlign: 'right' }}>Est. Cost</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {usage.history.map((record) => (
-                    <tr key={record.month} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <td style={{ padding: '10px 0' }}>{record.month}</td>
-                      <td style={{ padding: '10px 0' }}>{record.messageCount}</td>
-                      <td style={{ padding: '10px 0' }}>{record.tokenCount.toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {usage.history
+                    .filter(record => record.month.toLowerCase().includes(historyFilter.toLowerCase()))
+                    .map((record) => {
+                      const cost = (record.tokenCount / 1000) * Number(bot?.pricePer1kTokens || 0) + 
+                                   record.messageCount * Number(bot?.pricePerMessage || 0);
+                      return (
+                        <tr key={record.month} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <td style={{ padding: '10px 0' }}>{record.month}</td>
+                          <td style={{ padding: '10px 0' }}>{record.messageCount}</td>
+                          <td style={{ padding: '10px 0' }}>{record.tokenCount.toLocaleString()}</td>
+                          <td style={{ padding: '10px 0', textAlign: 'right', color: '#10b981' }}>${cost.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
 
+        {/* Pricing Modal */}
+        {editingPricing && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: 400 }}>
+              <h3 style={{ marginBottom: 16 }}>Configure Pricing</h3>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                Set the rates used to calculate cost estimates for this bot.
+              </p>
+              
+              <div className="form-group">
+                <label>Price per 1,000 Tokens ($)</label>
+                <input 
+                  type="number" 
+                  step="0.0001"
+                  className="form-input"
+                  value={editPricePer1k}
+                  onChange={(e) => setEditPricePer1k(e.target.value)}
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Example: 0.002 (GPT-3.5 rate)</span>
+              </div>
+
+              <div className="form-group" style={{ marginTop: 16 }}>
+                <label>Price per Message ($)</label>
+                <input 
+                  type="number" 
+                  step="0.001"
+                  className="form-input"
+                  value={editPricePerMessage}
+                  onChange={(e) => setEditPricePerMessage(e.target.value)}
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Fixed cost per message sent</span>
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, marginTop: 24, justifyContent: 'flex-end' }}>
+                <button className="btn btn-outline" onClick={() => setEditingPricing(false)}>Cancel</button>
+                <button className="btn btn-primary" onClick={updatePricing}>Save Pricing</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Knowledge Management */}
         <div className="section">
-          <div className="section-title">Knowledge Base ({kTotal} chunks)</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div className="section-title" style={{ marginBottom: 0 }}>Knowledge Base ({kTotal} chunks)</div>
+            {knowledge.length > 0 && (
+              <button 
+                className="btn btn-outline btn-sm" 
+                style={{ color: 'var(--danger-color)', borderColor: 'rgba(239, 68, 68, 0.2)' }}
+                onClick={clearAllKnowledge}
+              >
+                🗑️ Clear All
+              </button>
+            )}
+          </div>
 
           <form onSubmit={addKnowledge} style={{ marginBottom: 24 }}>
             <div className="form-group">
@@ -452,9 +627,34 @@ export default function BotDetailPage() {
               />
             </div>
             <button type="submit" className="btn btn-primary" disabled={adding}>
-              {adding ? 'Adding...' : '+ Add Knowledge'}
+              {adding ? 'Adding...' : '+ Add Knowledge Chunk'}
             </button>
           </form>
+
+          <div style={{ padding: '20px', background: 'rgba(99, 102, 241, 0.05)', borderRadius: '12px', border: '1px dashed rgba(99, 102, 241, 0.3)', marginBottom: '32px' }}>
+            <h4 style={{ marginBottom: '12px', fontSize: '15px' }}>📄 Upload Knowledge from PDF</h4>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Upload a document to automatically extract text and add it to your bot's knowledge base.
+            </p>
+            <form onSubmit={handleFileUpload} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <input
+                id="pdf-upload"
+                type="file"
+                accept=".pdf"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                className="form-input"
+                style={{ padding: '8px' }}
+              />
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={!file || uploading}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {uploading ? 'Processing...' : 'Upload PDF'}
+              </button>
+            </form>
+          </div>
 
           {knowledge.length === 0 ? (
             <div className="empty-state">
