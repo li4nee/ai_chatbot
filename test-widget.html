@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Widget Test Page</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f8fafc;
+      color: #334155;
+    }
+    h1 { color: #1e293b; }
+    p { line-height: 1.6; }
+    .note {
+      background: #fffbeb;
+      border: 1px solid #fbbf24;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+    code {
+      background: #e2e8f0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🤖 Chat Widget Test Page</h1>
+  <p>This page simulates a customer's website with the chatbot widget embedded.</p>
+
+  <div class="note">
+    <strong>⚠️ Before testing:</strong><br>
+    1. Make sure the backend is running at <code>http://localhost:3000</code><br>
+    2. Replace <code>YOUR_BOT_API_KEY</code> below with a real API key from the admin panel<br>
+    3. Make sure you've added some knowledge to the bot
+  </div>
+
+  <p>
+    Lorem ipsum dolor sit amet, consectetur adipiscing elit. This is a sample website content.
+    The chat widget should appear as a floating bubble in the bottom-right corner.
+  </p>
+  <p>
+    Click the bubble to open the chat window, then try asking a question related to the knowledge
+    you added to your bot through the admin panel.
+  </p>
+
+  <!-- 👇 Embed the chatbot widget - replace YOUR_BOT_API_KEY with actual key -->
+  <script src="http://localhost:3000/widget.js" data-bot-key="bot_c6c1ef28c5b34e079ffc9ffb70abd9b5"></script>
+</body>
+</html>

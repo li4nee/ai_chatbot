@@ -1,0 +1,131 @@
+You are a senior full-stack engineer and system designer.
+
+I need to build an MVP of a multi-tenant chatbot platform.
+
+## Goal:
+
+Build a chatbot system that:
+
+1. Works on any website via an embeddable script
+2. Can be integrated into WordPress easily
+3. Allows custom knowledge (FAQ or text input)
+4. Uses AI to answer based on that knowledge
+5. Supports multiple bots (multi-tenant via bot_id)
+6. Has a simple admin panel to manage bot data
+7. Can later support live agent handoff and phone calls (design for extensibility but do not implement fully)
+
+---
+
+## Tech Stack Constraints:
+
+* Backend: NestJS (TypeScript)
+
+* Database: PostgreSQL (use pgvector if needed)
+
+* Realtime: Socket.IO (optional)
+
+* Queue: BullMQ (optional)
+
+* Frontend:
+
+  * Admin panel: NextJS
+  * Chat widget: Vanilla JS or React (must be embeddable via script)
+
+* AI:
+
+  * Use GEMINI API for responses
+  * Implement SIMPLE RAG (keep it minimal)
+
+---
+
+## MVP Scope (IMPORTANT):
+
+Keep everything SIMPLE and FAST:
+
+* Auth must be very secure.
+* No heavy UI (minimal dashboard)
+* No over-engineering
+
+---
+
+## Features to Implement:
+
+### 1. Chat Widget
+
+* Floating chat bubble UI
+* Input + message display
+* Communicates with backend via REST
+* Script embed format:
+
+  <script src="http://localhost:3000/widget.js" somekind of auth ></script>
+
+
+### 2. AI Logic (IMPORTANT)
+
+Implement simple Retrieval-Augmented Generation:
+
+Steps:
+
+1. Store knowledge as plain text chunks
+2. On user query:
+
+   * Fetch all knowledge for that bot (limit size)
+   * Inject into prompt like:
+
+"Answer the user's question based only on the following context: ..."
+
+3. Send to GEMINI Chat API
+
+
+---
+
+### 3. Admin Panel
+
+Pages:
+
+* Create bot
+* Add knowledge (text area)
+* View bot_id and API key
+
+Keep UI minimal.
+
+---
+
+### 5. Multi-Tenant Design
+
+Each bot should have:
+
+* id
+* name
+* api_key
+* knowledge
+
+All requests must include bot_id and properly have authentication and authorization for it.
+
+---
+
+### 6. Future-Proofing (Design Only)
+
+Prepare structure for:
+
+* live agent handoff (add field: is_human_active)
+* phone integration (abstract AI layer)
+
+Do not implement fully.
+
+---
+
+## Coding Style:
+
+* Clean, modular
+* Use DTOs and services (NestJS best practices)
+* Add comments where needed
+
+---
+
+## Output Format:
+
+* Step-by-step implementation
+* Provide code snippets
+* Do not skip setup steps
+* Prioritize working code over perfection
