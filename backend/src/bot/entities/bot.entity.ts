@@ -28,6 +28,12 @@ export class Bot {
   @Column({ default: '👋 Hi there! How can I help you today?' })
   welcomeMessage: string;
 
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
+  pricePer1kTokens: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
+  pricePerMessage: number;
+
   @Column({ unique: true })
   apiKey: string;
 

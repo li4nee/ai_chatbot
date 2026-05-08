@@ -5,9 +5,10 @@ import { KnowledgeService } from './knowledge.service';
 import { KnowledgeController } from './knowledge.controller';
 import { KnowledgeDeleteController } from './knowledge-delete.controller';
 import { BotModule } from '../bot/bot.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Knowledge]), BotModule],
+  imports: [TypeOrmModule.forFeature([Knowledge]), BotModule, AiModule],
   providers: [KnowledgeService],
   controllers: [KnowledgeController, KnowledgeDeleteController],
   exports: [KnowledgeService],

@@ -1,4 +1,4 @@
-import { IsString, MinLength, IsOptional } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsNumber } from 'class-validator';
 
 export class CreateBotDto {
   @IsString()
@@ -16,6 +16,14 @@ export class CreateBotDto {
   @IsString()
   @IsOptional()
   welcomeMessage?: string;
+
+  @IsNumber()
+  @IsOptional()
+  pricePer1kTokens?: number;
+
+  @IsNumber()
+  @IsOptional()
+  pricePerMessage?: number;
 }
 
 export class UpdateBotDto {
@@ -35,4 +43,12 @@ export class UpdateBotDto {
   @IsString()
   @IsOptional()
   welcomeMessage?: string;
+
+  @IsNumber()
+  @IsOptional()
+  pricePer1kTokens?: number;
+
+  @IsNumber()
+  @IsOptional()
+  pricePerMessage?: number;
 }

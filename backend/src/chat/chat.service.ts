@@ -61,8 +61,8 @@ export class ChatService {
     });
     await this.messageRepo.save(userMsg);
 
-    // Get context from knowledge base (simple RAG — no vectors)
-    const context = await this.knowledgeService.getContextForBot(bot.id);
+    // Get context from knowledge base (Vector Search RAG)
+    const context = await this.knowledgeService.getContextForBot(bot.id, userMessage);
 
     // Get last 10 messages for conversation history
     const history = await this.messageRepo.find({
