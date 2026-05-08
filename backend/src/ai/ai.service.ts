@@ -1,7 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
-import { SystemMessage, HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
+import {
+  ChatGoogleGenerativeAI,
+  GoogleGenerativeAIEmbeddings,
+} from '@langchain/google-genai';
+import {
+  SystemMessage,
+  HumanMessage,
+  AIMessage,
+  BaseMessage,
+} from '@langchain/core/messages';
 
 /**
  * AI Service using LangChain with Gemini.
@@ -18,7 +26,7 @@ export class AiService {
 
     this.chatModel = new ChatGoogleGenerativeAI({
       apiKey,
-      modelName: 'gemini-1.5-flash',
+      modelName: 'gemini-2.5-flash',
       temperature: 0.2,
       maxOutputTokens: 1024,
       maxRetries: 0, // This makes the error show up "sooner" by failing immediately on invalid models
@@ -26,7 +34,7 @@ export class AiService {
 
     this.embeddingsModel = new GoogleGenerativeAIEmbeddings({
       apiKey,
-      modelName: 'embedding-001',
+      modelName: 'gemini-embedding-001',
     });
   }
 
@@ -60,14 +68,14 @@ Answer the [CURRENT QUESTION] using the provided [KNOWLEDGE CONTEXT].
 3. Never use technical jargon like "context," "embeddings," or "knowledge base" when talking to users.
 4. If you see unrelated previous questions in [CONVERSATION HISTORY], ignore them and focus on the [CURRENT QUESTION].`;
 
-      const messages: BaseMessage[] = [
-        new SystemMessage(systemInstruction),
-      ];
+      const messages: BaseMessage[] = [new SystemMessage(systemInstruction)];
 
       // Add conversation history
       conversationHistory.forEach((msg) => {
         if (msg.role === 'user') {
-          messages.push(new HumanMessage(`[PAST USER QUESTION]: ${msg.content}`));
+          messages.push(
+            new HumanMessage(`[PAST USER QUESTION]: ${msg.content}`),
+          );
         } else {
           messages.push(new AIMessage(`[PAST AI RESPONSE]: ${msg.content}`));
         }
