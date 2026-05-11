@@ -24,14 +24,14 @@ export class AuthService implements OnModuleInit {
     const count = await this.usersRepo.count();
     if (count === 0) {
       console.log('🌱 Seeding initial super admin...');
-      const passwordHash = await bcrypt.hash('admin123', 10);
+      const passwordHash = await bcrypt.hash('SoloiTech@Admin#2026', 10);
       const superAdmin = this.usersRepo.create({
         email: 'admin@admin.com',
         passwordHash,
         role: UserRole.SUPER_ADMIN,
       });
       await this.usersRepo.save(superAdmin);
-      console.log('✅ Super admin created: admin@admin.com / admin123');
+      console.log('✅ Super admin created: admin@admin.com / SoloiTech@Admin#2026');
     }
   }
 

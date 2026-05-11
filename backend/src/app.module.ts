@@ -42,8 +42,8 @@ import { UsageModule } from './usage/usage.module';
         password: config.get('DB_PASSWORD', 'postgres'),
         database: config.get('DB_NAME', 'ai_chatbot'),
         entities: [User, Bot, Knowledge, Conversation, Message, Usage],
-        synchronize: true, // Auto-sync schema in dev — disable in production
-        ssl: config.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
+        synchronize: config.get('NODE_ENV') !== 'production', // Disable auto-sync in production
+        ssl: config.get('DB_SSL') === 'true' || config.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
       }),
     }),
 
@@ -57,4 +57,4 @@ import { UsageModule } from './usage/usage.module';
     UsageModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }
