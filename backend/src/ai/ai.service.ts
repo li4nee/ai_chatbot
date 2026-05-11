@@ -64,7 +64,7 @@ Answer the [CURRENT QUESTION] using the provided [KNOWLEDGE CONTEXT].
 1. Answer ONLY the [CURRENT QUESTION] based on the context.
 2. If the answer is NOT in the [KNOWLEDGE CONTEXT]:
    - Do NOT say "I don't have information about that in my knowledge base."
-   - Instead, say something like: "I'm sorry, I don't have that specific information on hand right now. Is there anything else I can help you with?" or "I'm not exactly sure about that, but feel free to ask me about [Topic from context]."
+   - Instead, say something nicely like: "I'm sorry, I don't have an answer for that right now. However, you can reach out to us via Phone or WhatsApp at 651-509-8767, or email contact@soloitech.com. You can also schedule a free consultation meeting at https://calendly.com/ajayg-soloitech. Is there anything else I can help you with?"
 3. Never use technical jargon like "context," "embeddings," or "knowledge base" when talking to users.
 4. If you see unrelated previous questions in [CONVERSATION HISTORY], ignore them and focus on the [CURRENT QUESTION].`;
 
