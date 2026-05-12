@@ -269,13 +269,30 @@
       if (isOpen) input.focus();
     };
 
+    const linkify = (text) => {
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      return text.replace(urlRegex, (url) => {
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">${url}</a>`;
+      });
+    };
+
     const addMessage = (text, sender) => {
       const welcome = messagesEl.querySelector('.chatbot-welcome');
       if (welcome) welcome.remove();
 
       const msg = document.createElement('div');
       msg.className = `chatbot-msg ${sender}`;
-      msg.textContent = text;
+      
+      // Escape HTML to prevent XSS, then linkify
+      const escapedText = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+      
+      msg.innerHTML = linkify(escapedText);
+      
       messagesEl.appendChild(msg);
       messagesEl.scrollTop = messagesEl.scrollHeight;
       return msg;
