@@ -19,6 +19,8 @@ import { Message } from './chat/entities/message.entity';
 import { Usage } from './usage/entities/usage.entity';
 import { UsageModule } from './usage/usage.module';
 
+import { VoiceModule } from './voice/voice.module';
+
 @Module({
   imports: [
     // Load .env file
@@ -55,6 +57,7 @@ import { UsageModule } from './usage/usage.module';
     AiModule,
     WidgetModule,
     UsageModule,
+    VoiceModule,
   ],
 })
 export class AppModule { }

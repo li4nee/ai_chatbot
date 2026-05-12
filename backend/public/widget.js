@@ -21,6 +21,11 @@
     welcomeMessage: '👋 Hi there! How can I help you today?'
   };
 
+  const VAPI_PUBLIC_KEY = 'ae3fffdd-57a9-454b-b7ca-940380bb1a15';
+  const VAPI_ASSISTANT_ID = 'b75b76de-6878-4f49-9d42-f702f1666b6a';
+  let vapi = null;
+  let isCalling = false;
+
   // ─── Styles ────────────────────────────────────────────────────
   const styles = document.createElement('style');
   styles.textContent = `
@@ -200,6 +205,43 @@
       0%, 80%, 100% { transform: scale(0); }
       40% { transform: scale(1); }
     }
+
+    #chatbot-call-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      border-radius: 8px;
+      padding: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+      margin-left: auto;
+    }
+    #chatbot-call-btn:hover { background: rgba(255, 255, 255, 0.3); }
+    #chatbot-call-btn svg { width: 18px; height: 18px; stroke: white; }
+    #chatbot-call-btn.active { background: #ef4444; animation: chatbot-pulse 1.5s infinite; }
+
+    @keyframes chatbot-pulse {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    #chatbot-call-status {
+      position: absolute;
+      top: 70px;
+      left: 0;
+      right: 0;
+      background: #ef4444;
+      color: white;
+      font-size: 12px;
+      text-align: center;
+      padding: 4px;
+      display: none;
+      z-index: 10;
+    }
+    #chatbot-call-status.visible { display: block; }
   `;
   document.head.appendChild(styles);
 
@@ -243,7 +285,13 @@
             <h3>${botConfig.displayName}</h3>
             <p>Online • Ready to help</p>
           </div>
+          <button id="chatbot-call-btn" title="Call AI Assistant">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.82 12.82 0 0 0 .62 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.91-1.91a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.62A2 2 0 0 1 22 16.92z"></path>
+            </svg>
+          </button>
         </div>
+        <div id="chatbot-call-status">Live Call in Progress...</div>
         <div id="chatbot-messages">
           <div class="chatbot-welcome">${botConfig.welcomeMessage}</div>
         </div>
@@ -261,6 +309,54 @@
     const messagesEl = document.getElementById('chatbot-messages');
     const input = document.getElementById('chatbot-input');
     const sendBtn = document.getElementById('chatbot-send');
+    const callBtn = document.getElementById('chatbot-call-btn');
+    const callStatus = document.getElementById('chatbot-call-status');
+
+    // Initialize Vapi if SDK is present
+    if (typeof Vapi !== 'undefined') {
+      vapi = new Vapi(VAPI_PUBLIC_KEY);
+      
+      vapi.on('call-start', () => {
+        isCalling = true;
+        callBtn.classList.add('active');
+        callStatus.classList.add('visible');
+        addMessage('Voice call started...', 'bot');
+      });
+
+      vapi.on('call-end', () => {
+        isCalling = false;
+        callBtn.classList.remove('active');
+        callStatus.classList.remove('visible');
+        addMessage('Voice call ended.', 'bot');
+      });
+
+      vapi.on('error', (e) => {
+        console.error('Vapi Error:', e);
+        isCalling = false;
+        callBtn.classList.remove('active');
+        callStatus.classList.remove('visible');
+        addMessage('Voice call error. Please check mic permissions.', 'bot');
+      });
+    }
+
+    const toggleCall = async () => {
+      if (!vapi) {
+        addMessage('Voice agent not initialized. Refresh page.', 'bot');
+        return;
+      }
+
+      if (isCalling) {
+        vapi.stop();
+      } else {
+        try {
+          await vapi.start(VAPI_ASSISTANT_ID);
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    };
+
+    callBtn.onclick = toggleCall;
 
     bubble.onclick = () => {
       isOpen = !isOpen;

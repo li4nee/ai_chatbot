@@ -324,7 +324,11 @@ export default function BotDetailPage() {
   if (!bot) return <div className="spinner">Loading bot...</div>;
 
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-  const embedCode = `<script src="${backendUrl}/widget.js" data-bot-key="${bot.apiKey}"></script>`;
+  const embedCode = `<!-- Load Voice Agent SDK -->
+<script src="https://cdn.jsdelivr.net/gh/vapi-ai/web-sdk@latest/dist/vapi.js"></script>
+
+<!-- Load Chatbot Widget -->
+<script src="${backendUrl}/widget.js" data-bot-key="${bot.apiKey}"></script>`;
   const kTotalPages = Math.ceil(kTotal / kLimit);
 
   return (
@@ -466,13 +470,18 @@ export default function BotDetailPage() {
         <div className="section">
           <div className="section-title">Embed Code</div>
           <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            Add this script tag to any website to embed the chatbot:
+            Add these script tags to your website header to enable both the Chatbot and Voice Agent:
           </p>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <code className="code-block" style={{ flex: 1 }}>{embedCode}</code>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 16 }}>
+            <pre className="code-block" style={{ flex: 1, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '13px' }}>
+              {embedCode}
+            </pre>
             <button className="copy-btn" onClick={() => copyToClipboard(embedCode, 'embed')}>
               {copied === 'embed' ? '✓ Copied' : 'Copy'}
             </button>
+          </div>
+          <div className="alert alert-info" style={{ fontSize: '13px' }}>
+            <strong>💡 Voice Agent Tip:</strong> Ensure you have configured your Vapi Assistant ID in the backend to enable the voice call feature.
           </div>
         </div>
 
