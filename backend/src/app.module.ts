@@ -20,6 +20,7 @@ import { Usage } from './usage/entities/usage.entity';
 import { UsageModule } from './usage/usage.module';
 
 import { VoiceModule } from './voice/voice.module';
+import { CrmModule } from './crm/crm.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { VoiceModule } from './voice/voice.module';
     WidgetModule,
     UsageModule,
     VoiceModule,
+    CrmModule,
   ],
 })
 export class AppModule { }
