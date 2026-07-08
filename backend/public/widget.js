@@ -21,8 +21,6 @@
     welcomeMessage: '👋 Hi there! How can I help you today?'
   };
 
-  const VAPI_PUBLIC_KEY = 'ae3fffdd-57a9-454b-b7ca-940380bb1a15';
-  const VAPI_ASSISTANT_ID = 'b75b76de-6878-4f49-9d42-f702f1666b6a';
   let vapi = null;
   let isCalling = false;
 
@@ -312,10 +310,17 @@
     const callBtn = document.getElementById('chatbot-call-btn');
     const callStatus = document.getElementById('chatbot-call-status');
 
-    // Initialize Vapi if SDK is present
-    if (typeof Vapi !== 'undefined') {
-      vapi = new Vapi(VAPI_PUBLIC_KEY);
-      
+    // Voice is BYOK — only available when the bot has configured its own
+    // Vapi public key + assistant ID (see /chat/config).
+    const voiceEnabled = !!(botConfig.vapiPublicKey && botConfig.vapiAssistantId);
+    if (!voiceEnabled) {
+      callBtn.style.display = 'none';
+    }
+
+    // Initialize Vapi if the SDK is present and this bot has voice configured
+    if (voiceEnabled && typeof Vapi !== 'undefined') {
+      vapi = new Vapi(botConfig.vapiPublicKey);
+
       vapi.on('call-start', () => {
         isCalling = true;
         callBtn.classList.add('active');
@@ -349,7 +354,7 @@
         vapi.stop();
       } else {
         try {
-          await vapi.start(VAPI_ASSISTANT_ID);
+          await vapi.start(botConfig.vapiAssistantId);
         } catch (err) {
           console.error(err);
         }

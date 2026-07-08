@@ -10,6 +10,7 @@ import {
 import { User } from '../../auth/entities/user.entity';
 import { Knowledge } from '../../knowledge/entities/knowledge.entity';
 import { Conversation } from '../../chat/entities/conversation.entity';
+import { AiProvider } from '../../ai/ai-provider.enum';
 
 @Entity('bots')
 export class Bot {
@@ -40,6 +41,38 @@ export class Bot {
   // Future: live agent handoff support
   @Column({ default: false })
   isHumanActive: boolean;
+
+  // ── BYOK credentials ──
+  // Secret values below are AES-256-GCM encrypted (see EncryptionService) and
+  // excluded from default queries — fetch via BotService's dedicated methods.
+
+  // Chat provider — which AI this bot answers with, and its key.
+  @Column({ type: 'enum', enum: AiProvider, default: AiProvider.GEMINI })
+  aiProvider: AiProvider;
+
+  @Column({ type: 'text', nullable: true, select: false })
+  aiApiKeyEncrypted: string | null;
+
+  // Only set when `aiProvider` is chat-only (Anthropic/Groq have no embeddings
+  // API) — a bot in that case brings a second, embeddings-capable key.
+  @Column({ type: 'enum', enum: AiProvider, nullable: true })
+  embeddingProvider: AiProvider | null;
+
+  @Column({ type: 'text', nullable: true, select: false })
+  embeddingApiKeyEncrypted: string | null;
+
+  @Column({ type: 'text', nullable: true, select: false })
+  hubspotAccessTokenEncrypted: string | null;
+
+  @Column({ type: 'text', nullable: true, select: false })
+  vapiWebhookSecretEncrypted: string | null;
+
+  // Publishable/client-safe — served to the widget as-is, never encrypted.
+  @Column({ type: 'text', nullable: true })
+  vapiPublicKey: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  vapiAssistantId: string | null;
 
   @Column()
   userId: string;

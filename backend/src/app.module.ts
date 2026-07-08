@@ -9,7 +9,6 @@ import { ChatModule } from './chat/chat.module';
 import { AiModule } from './ai/ai.module';
 import { WidgetModule } from './widget/widget.module';
 
-
 // Entities
 import { User } from './auth/entities/user.entity';
 import { Bot } from './bot/entities/bot.entity';
@@ -21,12 +20,20 @@ import { UsageModule } from './usage/usage.module';
 
 import { VoiceModule } from './voice/voice.module';
 import { CrmModule } from './crm/crm.module';
+import { CrmSyncFailure } from './crm/entities/crm-sync-failure.entity';
+import { ScheduleModule } from '@nestjs/schedule';
+import { CommonModule } from './common/common.module';
 
 @Module({
   imports: [
     // Load .env file
     ConfigModule.forRoot({ isGlobal: true }),
 
+    // Encryption utility for BYOK credentials (Global — available everywhere)
+    CommonModule,
+
+    // Enables @Cron() jobs (used for dead-letter retry of failed CRM syncs)
+    ScheduleModule.forRoot(),
 
     // Rate limiting: 20 requests per 60 seconds per IP
     ThrottlerModule.forRoot({
@@ -44,9 +51,21 @@ import { CrmModule } from './crm/crm.module';
         username: config.get('DB_USERNAME', 'postgres'),
         password: config.get('DB_PASSWORD', 'postgres'),
         database: config.get('DB_NAME', 'ai_chatbot'),
-        entities: [User, Bot, Knowledge, Conversation, Message, Usage],
+        entities: [
+          User,
+          Bot,
+          Knowledge,
+          Conversation,
+          Message,
+          Usage,
+          CrmSyncFailure,
+        ],
         synchronize: config.get('NODE_ENV') !== 'production', // Disable auto-sync in production
-        ssl: config.get('DB_SSL') === 'true' || config.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
+        ssl:
+          config.get('DB_SSL') === 'true' ||
+          config.get('NODE_ENV') === 'production'
+            ? { rejectUnauthorized: false }
+            : false,
       }),
     }),
 
@@ -62,4 +81,4 @@ import { CrmModule } from './crm/crm.module';
     CrmModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

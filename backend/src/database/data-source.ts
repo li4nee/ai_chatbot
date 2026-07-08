@@ -6,6 +6,7 @@ import { Knowledge } from '../knowledge/entities/knowledge.entity';
 import { Conversation } from '../chat/entities/conversation.entity';
 import { Message } from '../chat/entities/message.entity';
 import { Usage } from '../usage/entities/usage.entity';
+import { CrmSyncFailure } from '../crm/entities/crm-sync-failure.entity';
 
 dotenv.config();
 
@@ -16,7 +17,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'postgres',
   password: process.env.DB_PASSWORD || 'postgres',
   database: process.env.DB_NAME || 'ai_chatbot',
-  entities: [User, Bot, Knowledge, Conversation, Message, Usage],
+  entities: [User, Bot, Knowledge, Conversation, Message, Usage, CrmSyncFailure],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: process.env.NODE_ENV === 'production' ? false : true,
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,

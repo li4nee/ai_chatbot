@@ -414,6 +414,32 @@ textarea.form-input {
   color: var(--accent);
 }
 
+/* ── Badges ─────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-pending {
+  background: rgba(234, 179, 8, 0.12);
+  color: #facc15;
+}
+
+.badge-resolved {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--success);
+}
+
+.badge-failed {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
 /* ── Pagination ─────────────────────────────────── */
 .pagination {
   display: flex;

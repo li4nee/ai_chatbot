@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,6 +8,7 @@ import { KnowledgeService } from '../knowledge/knowledge.service';
 import { AiService } from '../ai/ai.service';
 import { Bot } from '../bot/entities/bot.entity';
 import { UsageService } from '../usage/usage.service';
+import { BotService } from '../bot/bot.service';
 
 @Injectable()
 export class ChatService {
@@ -21,6 +22,7 @@ export class ChatService {
     private knowledgeService: KnowledgeService,
     private aiService: AiService,
     private usageService: UsageService,
+    private botService: BotService,
   ) {}
 
   /**
@@ -37,6 +39,10 @@ export class ChatService {
     userMessage: string,
     sessionId?: string,
   ): Promise<{ reply: string; sessionId: string }> {
+    // Fail fast, before touching the conversation/message tables, if this bot
+    // has no AI provider key configured (BYOK, no platform fallback).
+    const { provider, apiKey } = await this.botService.getChatCredentials(bot.id);
+
     // Ensure a sessionId exists
     const effectiveSessionId = sessionId || uuidv4();
 
@@ -62,7 +68,10 @@ export class ChatService {
     await this.messageRepo.save(userMsg);
 
     // Get context from knowledge base (Vector Search RAG)
-    const context = await this.knowledgeService.getContextForBot(bot.id, userMessage);
+    const context = await this.knowledgeService.getContextForBot(
+      bot.id,
+      userMessage,
+    );
 
     // Get last 10 messages for conversation history
     const history = await this.messageRepo.find({
@@ -78,6 +87,8 @@ export class ChatService {
 
     // Generate AI response
     const reply = await this.aiService.generateResponse(
+      provider,
+      apiKey,
       context,
       userMessage,
       conversationHistory,
@@ -96,5 +107,60 @@ export class ChatService {
     await this.usageService.incrementUsage(bot.id, tokens);
 
     return { reply, sessionId: effectiveSessionId };
+  }
+
+  /** Paginated conversation list for a bot, with message count + a preview of the last message. */
+  async getConversationsForBot(
+    botId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    const [conversations, total] = await this.conversationRepo.findAndCount({
+      where: { botId },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const data = await Promise.all(
+      conversations.map(async (c) => {
+        const [messageCount, lastMessage] = await Promise.all([
+          this.messageRepo.count({ where: { conversationId: c.id } }),
+          this.messageRepo.findOne({
+            where: { conversationId: c.id },
+            order: { createdAt: 'DESC' },
+          }),
+        ]);
+        return {
+          id: c.id,
+          sessionId: c.sessionId,
+          createdAt: c.createdAt,
+          messageCount,
+          lastMessagePreview: lastMessage?.content?.slice(0, 140) ?? '',
+        };
+      }),
+    );
+
+    return { data, total, page, limit };
+  }
+
+  /** Full ordered transcript for one conversation, scoped to the given bot. */
+  async getTranscript(botId: string, conversationId: string) {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId, botId },
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+    const messages = await this.messageRepo.find({
+      where: { conversationId },
+      order: { createdAt: 'ASC' },
+    });
+    return {
+      id: conversation.id,
+      sessionId: conversation.sessionId,
+      createdAt: conversation.createdAt,
+      messages,
+    };
   }
 }
