@@ -14,8 +14,30 @@ interface Bot {
   pricePer1kTokens: number | string;
   pricePerMessage: number | string;
   apiKey: string;
-  isHumanActive: boolean;
+  humanHandoffEnabled: boolean;
   createdAt: string;
+  vapiPublicKey: string | null;
+  vapiAssistantId: string | null;
+  aiProvider: string;
+  hasAiApiKey: boolean;
+  embeddingProvider: string | null;
+  hasEmbeddingApiKey: boolean;
+  hasHubspotAccessToken: boolean;
+  hasVapiWebhookSecret: boolean;
+}
+
+const AI_PROVIDERS = [
+  { value: 'GEMINI', label: 'Google Gemini' },
+  { value: 'OPENAI', label: 'OpenAI' },
+  { value: 'ANTHROPIC', label: 'Anthropic (Claude)' },
+  { value: 'GROQ', label: 'Groq' },
+  { value: 'MISTRAL', label: 'Mistral' },
+];
+
+const EMBEDDING_CAPABLE_PROVIDERS = ['GEMINI', 'OPENAI', 'MISTRAL'];
+
+function providerLabel(value: string): string {
+  return AI_PROVIDERS.find((p) => p.value === value)?.label || value;
 }
 
 interface Knowledge {
@@ -33,6 +55,53 @@ interface UsageRecord {
 interface UsageData {
   current: UsageRecord;
   history: UsageRecord[];
+  totalConversations: number;
+}
+
+function formatMonth(monthStr: string): string {
+  const [year, month] = monthStr.split('-');
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  return date.toLocaleDateString('en-US', { month: 'short' });
+}
+
+/** Rounded-top bar path so bars read as "data ending in the air", flat where they meet the baseline. */
+function roundedTopBarPath(x: number, y: number, width: number, height: number, radius: number): string {
+  const r = Math.min(radius, width / 2, height);
+  return `M${x},${y + height} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + width - r},${y} Q${x + width},${y} ${x + width},${y + r} L${x + width},${y + height} Z`;
+}
+
+/** Minimal dependency-free bar chart for one usage metric across months. */
+function UsageBarChart({ history, metric, label }: { history: UsageRecord[]; metric: 'messageCount' | 'tokenCount'; label: string }) {
+  const data = [...history].reverse(); // oldest -> newest, left to right
+  const width = 320;
+  const height = 120;
+  const padding = { top: 16, bottom: 20, left: 4, right: 4 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const maxValue = Math.max(...data.map((d) => Number(d[metric])), 1);
+  const gap = 6;
+  const barWidth = data.length > 0 ? (chartWidth - gap * (data.length - 1)) / data.length : 0;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label={`${label} per month`}>
+      {data.map((d, i) => {
+        const value = Number(d[metric]);
+        const barHeight = maxValue > 0 ? (value / maxValue) * chartHeight : 0;
+        const x = padding.left + i * (barWidth + gap);
+        const y = padding.top + (chartHeight - barHeight);
+        return (
+          <g key={d.month}>
+            <path d={roundedTopBarPath(x, y, barWidth, Math.max(barHeight, 1), 3)} style={{ fill: 'var(--accent)' }}>
+              <title>{`${d.month}: ${value.toLocaleString()} ${label.toLowerCase()}`}</title>
+            </path>
+            <text x={x + barWidth / 2} y={height - 6} textAnchor="middle" fontSize="8" style={{ fill: 'var(--text-muted)' }}>
+              {formatMonth(d.month)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
 }
 
 export default function BotDetailPage() {
@@ -65,6 +134,20 @@ export default function BotDetailPage() {
   const [editingPricing, setEditingPricing] = useState(false);
   const [editPricePer1k, setEditPricePer1k] = useState('0');
   const [editPricePerMessage, setEditPricePerMessage] = useState('0');
+
+  // Integrations (BYOK)
+  const [editingAiProvider, setEditingAiProvider] = useState(false);
+  const [aiProviderInput, setAiProviderInput] = useState('GEMINI');
+  const [aiApiKeyInput, setAiApiKeyInput] = useState('');
+  const [editingEmbedding, setEditingEmbedding] = useState(false);
+  const [embeddingProviderInput, setEmbeddingProviderInput] = useState('GEMINI');
+  const [embeddingApiKeyInput, setEmbeddingApiKeyInput] = useState('');
+  const [editingHubspot, setEditingHubspot] = useState(false);
+  const [hubspotTokenInput, setHubspotTokenInput] = useState('');
+  const [editingVoice, setEditingVoice] = useState(false);
+  const [vapiPublicKeyInput, setVapiPublicKeyInput] = useState('');
+  const [vapiAssistantIdInput, setVapiAssistantIdInput] = useState('');
+  const [vapiWebhookSecretInput, setVapiWebhookSecretInput] = useState('');
 
   // History filtering
   const [historyFilter, setHistoryFilter] = useState('');
@@ -128,6 +211,136 @@ export default function BotDetailPage() {
       setBot(data);
       setEditingPricing(false);
       showSuccess('Pricing settings updated');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const toggleHandoff = async () => {
+    if (!bot) return;
+    try {
+      await api(`/bots/${botId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ humanHandoffEnabled: !bot.humanHandoffEnabled }),
+        token: token!,
+      });
+      const wasEnabled = bot.humanHandoffEnabled;
+      await fetchBot();
+      showSuccess(wasEnabled ? 'Live agent handoff disabled' : 'Live agent handoff enabled');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const saveAiProvider = async () => {
+    if (!aiApiKeyInput.trim()) return;
+    try {
+      await api(`/bots/${botId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ aiProvider: aiProviderInput, aiApiKey: aiApiKeyInput.trim() }),
+        token: token!,
+      });
+      setAiApiKeyInput('');
+      setEditingAiProvider(false);
+      fetchBot();
+      showSuccess('AI provider saved');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const clearAiApiKey = async () => {
+    if (!confirm('Remove this bot\'s AI provider key? Chat and knowledge answering will stop working until a new key is added.')) return;
+    try {
+      await api(`/bots/${botId}`, { method: 'PATCH', body: JSON.stringify({ aiApiKey: '' }), token: token! });
+      fetchBot();
+      showSuccess('AI provider key removed');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const saveEmbeddingConfig = async () => {
+    if (!embeddingApiKeyInput.trim()) return;
+    try {
+      await api(`/bots/${botId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ embeddingProvider: embeddingProviderInput, embeddingApiKey: embeddingApiKeyInput.trim() }),
+        token: token!,
+      });
+      setEmbeddingApiKeyInput('');
+      fetchBot();
+      showSuccess('Embedding provider saved');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const clearEmbeddingApiKey = async () => {
+    if (!confirm('Remove the embeddings key? Knowledge base search will stop working for this bot.')) return;
+    try {
+      await api(`/bots/${botId}`, { method: 'PATCH', body: JSON.stringify({ embeddingApiKey: '' }), token: token! });
+      fetchBot();
+      showSuccess('Embeddings key removed');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const saveHubspotToken = async () => {
+    if (!hubspotTokenInput.trim()) return;
+    try {
+      await api(`/bots/${botId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ hubspotAccessToken: hubspotTokenInput.trim() }),
+        token: token!,
+      });
+      setHubspotTokenInput('');
+      setEditingHubspot(false);
+      fetchBot();
+      showSuccess('HubSpot access token saved');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const clearHubspotToken = async () => {
+    if (!confirm('Remove the HubSpot access token? Call/contact syncing will stop for this bot.')) return;
+    try {
+      await api(`/bots/${botId}`, { method: 'PATCH', body: JSON.stringify({ hubspotAccessToken: '' }), token: token! });
+      fetchBot();
+      showSuccess('HubSpot access token removed');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const saveVoiceConfig = async () => {
+    try {
+      const body: Record<string, string> = {
+        vapiPublicKey: vapiPublicKeyInput.trim(),
+        vapiAssistantId: vapiAssistantIdInput.trim(),
+      };
+      // Leaving the secret field blank means "no change" — clearing it is a separate explicit action.
+      if (vapiWebhookSecretInput.trim()) {
+        body.vapiWebhookSecret = vapiWebhookSecretInput.trim();
+      }
+      await api(`/bots/${botId}`, { method: 'PATCH', body: JSON.stringify(body), token: token! });
+      setVapiWebhookSecretInput('');
+      setEditingVoice(false);
+      fetchBot();
+      showSuccess('Voice settings saved');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const clearVoiceWebhookSecret = async () => {
+    if (!confirm('Remove the Vapi webhook secret? Incoming call webhooks for this bot will no longer be verified.')) return;
+    try {
+      await api(`/bots/${botId}`, { method: 'PATCH', body: JSON.stringify({ vapiWebhookSecret: '' }), token: token! });
+      fetchBot();
+      showSuccess('Webhook secret removed');
     } catch (err: any) {
       setError(err.message);
     }
@@ -324,7 +537,11 @@ export default function BotDetailPage() {
   if (!bot) return <div className="spinner">Loading bot...</div>;
 
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-  const embedCode = `<script src="${backendUrl}/widget.js" data-bot-key="${bot.apiKey}"></script>`;
+  const embedCode = `<!-- Load Voice Agent SDK -->
+<script src="https://cdn.jsdelivr.net/gh/vapi-ai/web-sdk@latest/dist/vapi.js"></script>
+
+<!-- Load Chatbot Widget -->
+<script src="${backendUrl}/widget.js" data-bot-key="${bot.apiKey}"></script>`;
   const kTotalPages = Math.ceil(kTotal / kLimit);
 
   return (
@@ -359,7 +576,10 @@ export default function BotDetailPage() {
               {bot.name} <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>✏️</span>
             </h1>
           )}
-          <button className="btn btn-danger" onClick={deleteBot}>Delete Bot</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Link href={`/bots/${botId}/conversations`} className="btn btn-outline btn-sm">💬 Conversations</Link>
+            <button className="btn btn-danger" onClick={deleteBot}>Delete Bot</button>
+          </div>
         </div>
 
         {error && <div className="alert alert-error">{error}</div>}
@@ -462,18 +682,279 @@ export default function BotDetailPage() {
           </div>
         </div>
 
+        {/* Live Agent Handoff */}
+        <div className="section">
+          <div className="section-title">Live Agent Handoff</div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                  {bot.humanHandoffEnabled ? 'Enabled' : 'Disabled'}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {bot.humanHandoffEnabled
+                    ? 'Visitors can request a human agent from the widget. Take over conversations from the '
+                    : 'Turn this on to let visitors request a human agent from the widget. Manage handoffs from the '}
+                  <Link href={`/bots/${botId}/conversations`}>Conversations page</Link>.
+                </div>
+              </div>
+              <button className="btn btn-outline btn-sm" onClick={toggleHandoff}>
+                {bot.humanHandoffEnabled ? 'Disable' : 'Enable'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Integrations (BYOK) */}
+        <div className="section">
+          <div className="section-title">Integrations</div>
+
+          {/* AI Provider — required */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            {editingAiProvider ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Provider</label>
+                  <select
+                    className="form-input"
+                    value={aiProviderInput}
+                    onChange={(e) => setAiProviderInput(e.target.value)}
+                  >
+                    {AI_PROVIDERS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>{providerLabel(aiProviderInput)} API Key</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    value={aiApiKeyInput}
+                    onChange={(e) => setAiApiKeyInput(e.target.value)}
+                    placeholder="Paste the API key for this provider"
+                    autoFocus
+                  />
+                </div>
+                {!EMBEDDING_CAPABLE_PROVIDERS.includes(aiProviderInput) && (
+                  <div className="alert alert-error" style={{ fontSize: 13, marginBottom: 0 }}>
+                    {providerLabel(aiProviderInput)} doesn&apos;t support embeddings — you&apos;ll need to configure a separate Gemini, OpenAI, or Mistral key below for knowledge base search.
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary btn-sm" onClick={saveAiProvider}>Save</button>
+                  <button className="btn btn-outline btn-sm" onClick={() => { setEditingAiProvider(false); setAiApiKeyInput(''); }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>AI Provider (required)</div>
+                  <div style={{ fontWeight: 500, color: bot.hasAiApiKey ? 'var(--text-primary)' : 'var(--danger)' }}>
+                    {bot.hasAiApiKey ? `${providerLabel(bot.aiProvider)} — •••• configured` : 'Not configured — chat is disabled'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => { setAiProviderInput(bot.aiProvider); setEditingAiProvider(true); }}
+                  >
+                    {bot.hasAiApiKey ? 'Replace' : 'Add Key'}
+                  </button>
+                  {bot.hasAiApiKey && <button className="btn btn-outline btn-sm" onClick={clearAiApiKey}>Remove</button>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Knowledge base embeddings — only needed when the AI provider above is chat-only */}
+          {!EMBEDDING_CAPABLE_PROVIDERS.includes(bot.aiProvider) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              {editingEmbedding ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Embeddings Provider</label>
+                    <select
+                      className="form-input"
+                      value={embeddingProviderInput}
+                      onChange={(e) => setEmbeddingProviderInput(e.target.value)}
+                    >
+                      {AI_PROVIDERS.filter((p) => EMBEDDING_CAPABLE_PROVIDERS.includes(p.value)).map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>{providerLabel(embeddingProviderInput)} API Key</label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      value={embeddingApiKeyInput}
+                      onChange={(e) => setEmbeddingApiKeyInput(e.target.value)}
+                      placeholder="Paste the API key for this provider"
+                      autoFocus
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary btn-sm" onClick={saveEmbeddingConfig}>Save</button>
+                    <button className="btn btn-outline btn-sm" onClick={() => { setEditingEmbedding(false); setEmbeddingApiKeyInput(''); }}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Knowledge Base Embeddings (required — {providerLabel(bot.aiProvider)} doesn&apos;t support embeddings)</div>
+                    <div style={{ fontWeight: 500, color: bot.hasEmbeddingApiKey ? 'var(--text-primary)' : 'var(--danger)' }}>
+                      {bot.hasEmbeddingApiKey ? `${providerLabel(bot.embeddingProvider || '')} — •••• configured` : 'Not configured — knowledge search is disabled'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => { setEmbeddingProviderInput(bot.embeddingProvider || 'GEMINI'); setEditingEmbedding(true); }}
+                    >
+                      {bot.hasEmbeddingApiKey ? 'Replace' : 'Add Key'}
+                    </button>
+                    {bot.hasEmbeddingApiKey && <button className="btn btn-outline btn-sm" onClick={clearEmbeddingApiKey}>Remove</button>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* HubSpot — optional */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            {editingHubspot ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>HubSpot Private App Access Token</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    value={hubspotTokenInput}
+                    onChange={(e) => setHubspotTokenInput(e.target.value)}
+                    placeholder="pat-..."
+                    autoFocus
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary btn-sm" onClick={saveHubspotToken}>Save</button>
+                  <button className="btn btn-outline btn-sm" onClick={() => { setEditingHubspot(false); setHubspotTokenInput(''); }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>CRM — HubSpot Access Token (optional)</div>
+                  <div style={{ fontWeight: 500 }}>{bot.hasHubspotAccessToken ? '•••• configured' : 'Not configured'}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-outline btn-sm" onClick={() => setEditingHubspot(true)}>{bot.hasHubspotAccessToken ? 'Replace' : 'Add Token'}</button>
+                  {bot.hasHubspotAccessToken && <button className="btn btn-outline btn-sm" onClick={clearHubspotToken}>Remove</button>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Vapi — optional */}
+          <div className="card">
+            {editingVoice ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Vapi Public Key</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={vapiPublicKeyInput}
+                    onChange={(e) => setVapiPublicKeyInput(e.target.value)}
+                    placeholder="Publishable key from your Vapi dashboard"
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Vapi Assistant ID</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={vapiAssistantIdInput}
+                    onChange={(e) => setVapiAssistantIdInput(e.target.value)}
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Webhook Secret {bot.hasVapiWebhookSecret ? '(leave blank to keep current)' : '(optional, recommended)'}</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    value={vapiWebhookSecretInput}
+                    onChange={(e) => setVapiWebhookSecretInput(e.target.value)}
+                    placeholder={bot.hasVapiWebhookSecret ? '••••••••' : 'Server URL Secret from your Vapi assistant'}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary btn-sm" onClick={saveVoiceConfig}>Save</button>
+                  <button className="btn btn-outline btn-sm" onClick={() => { setEditingVoice(false); setVapiWebhookSecretInput(''); }}>Cancel</button>
+                  {bot.hasVapiWebhookSecret && <button className="btn btn-outline btn-sm" onClick={clearVoiceWebhookSecret}>Remove Secret</button>}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Voice — Vapi (optional)</div>
+                    <div style={{ fontWeight: 500 }}>
+                      {bot.vapiPublicKey && bot.vapiAssistantId ? 'Configured' : 'Not configured — call button is hidden'}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => {
+                      setVapiPublicKeyInput(bot.vapiPublicKey || '');
+                      setVapiAssistantIdInput(bot.vapiAssistantId || '');
+                      setEditingVoice(true);
+                    }}
+                  >
+                    {bot.vapiPublicKey ? 'Edit' : 'Configure'}
+                  </button>
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                    Server URL — paste this into your Vapi assistant&apos;s Server URL setting
+                  </label>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <code className="code-block" style={{ flex: 1 }}>{`${backendUrl}/voice/webhook/${bot.id}`}</code>
+                    <button className="copy-btn" onClick={() => copyToClipboard(`${backendUrl}/voice/webhook/${bot.id}`, 'webhook')}>
+                      {copied === 'webhook' ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Embed Code */}
         <div className="section">
           <div className="section-title">Embed Code</div>
           <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            Add this script tag to any website to embed the chatbot:
+            Add these script tags to your website header to enable both the Chatbot and Voice Agent:
           </p>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <code className="code-block" style={{ flex: 1 }}>{embedCode}</code>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 16 }}>
+            <pre className="code-block" style={{ flex: 1, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '13px' }}>
+              {embedCode}
+            </pre>
             <button className="copy-btn" onClick={() => copyToClipboard(embedCode, 'embed')}>
               {copied === 'embed' ? '✓ Copied' : 'Copy'}
             </button>
           </div>
+          {!bot.hasAiApiKey && (
+            <div className="alert alert-error" style={{ fontSize: '13px' }}>
+              <strong>⚠️ Setup incomplete:</strong> add an AI provider key in Integrations above — chat won&apos;t work without one.
+            </div>
+          )}
+          {!(bot.vapiPublicKey && bot.vapiAssistantId) && (
+            <div className="alert alert-info" style={{ fontSize: '13px' }}>
+              <strong>💡 Voice Agent Tip:</strong> configure Vapi in the Integrations section above to enable the voice call button.
+            </div>
+          )}
         </div>
 
         {/* Usage Metrics */}
@@ -506,12 +987,34 @@ export default function BotDetailPage() {
             <div className="card" style={{ border: '1px solid rgba(16, 185, 129, 0.2)', background: 'rgba(16, 185, 129, 0.05)' }}>
               <div className="card-meta" style={{ color: '#10b981' }}>Estimated Cost</div>
               <div className="card-title" style={{ fontSize: 24, margin: '8px 0', color: '#10b981' }}>
-                ${((Number(usage?.current.tokenCount || 0) / 1000) * Number(bot?.pricePer1kTokens || 0) + 
+                ${((Number(usage?.current.tokenCount || 0) / 1000) * Number(bot?.pricePer1kTokens || 0) +
                    Number(usage?.current.messageCount || 0) * Number(bot?.pricePerMessage || 0)).toFixed(2)}
               </div>
               <div className="card-meta">Based on current rates</div>
             </div>
+            <Link href={`/bots/${botId}/conversations`} className="card-link">
+              <div className="card">
+                <div className="card-meta">All Time</div>
+                <div className="card-title" style={{ fontSize: 24, margin: '8px 0' }}>
+                  {usage?.totalConversations ?? 0}
+                </div>
+                <div className="card-meta">Conversations →</div>
+              </div>
+            </Link>
           </div>
+
+          {usage && usage.history.length > 1 && (
+            <div className="card-grid" style={{ marginBottom: 24 }}>
+              <div className="card">
+                <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'block', marginBottom: 8 }}>Messages / month</label>
+                <UsageBarChart history={usage.history} metric="messageCount" label="Messages" />
+              </div>
+              <div className="card">
+                <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'block', marginBottom: 8 }}>Tokens / month</label>
+                <UsageBarChart history={usage.history} metric="tokenCount" label="Tokens" />
+              </div>
+            </div>
+          )}
 
           {usage && usage.history.length > 0 && (
             <div className="card">

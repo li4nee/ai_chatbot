@@ -39,7 +39,7 @@ export class BotController {
 
   @Get(':id')
   async findOne(@Request() req, @Param('id') id: string) {
-    return this.botService.findOne(id, req.user.id);
+    return this.botService.getSafeBotForOwner(id, req.user.id);
   }
 
   @Patch(':id')

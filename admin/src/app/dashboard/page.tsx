@@ -75,6 +75,7 @@ export default function DashboardPage() {
       <nav className="navbar">
         <span className="navbar-brand">🤖 ChatBot Admin</span>
         <div className="navbar-user">
+          <Link href="/crm" className="btn btn-outline btn-sm">CRM Sync Failures</Link>
           <span>{user.email}</span>
           <button className="btn btn-outline btn-sm" onClick={logout}>
             Logout

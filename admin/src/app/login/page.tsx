@@ -64,6 +64,10 @@ export default function LoginPage() {
           </button>
         </form>
 
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, fontSize: 13 }}>
+          <Link href="/forgot-password">Forgot password?</Link>
+          <Link href="/register">Don&apos;t have an account? Sign up</Link>
+        </div>
       </div>
     </div>
   );

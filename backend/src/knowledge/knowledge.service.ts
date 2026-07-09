@@ -1,10 +1,28 @@
-import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Knowledge } from './entities/knowledge.entity';
-import { CreateKnowledgeDto, UpdateKnowledgeDto } from './dto/create-knowledge.dto';
+import {
+  CreateKnowledgeDto,
+  UpdateKnowledgeDto,
+} from './dto/create-knowledge.dto';
 import { PDFParse } from 'pdf-parse';
 import { AiService } from '../ai/ai.service';
+import { BotService } from '../bot/bot.service';
+import { AiProvider } from '../ai/ai-provider.enum';
+import {
+  chunkText,
+  DEFAULT_CHUNK_SIZE,
+  DEFAULT_CHUNK_OVERLAP,
+} from './chunker.util';
+
+/** Chunks below this cosine similarity to the query are considered noise, not context. */
+const MIN_RELEVANCE_SCORE = 0.68;
 
 @Injectable()
 export class KnowledgeService {
@@ -14,17 +32,42 @@ export class KnowledgeService {
     @InjectRepository(Knowledge)
     private knowledgeRepo: Repository<Knowledge>,
     private aiService: AiService,
+    private botService: BotService,
   ) {}
 
-  async create(botId: string, dto: CreateKnowledgeDto): Promise<Knowledge> {
-    const embedding = await this.aiService.generateEmbedding(dto.content);
-    const knowledge = this.knowledgeRepo.create({
-      botId,
-      content: dto.content,
-      embedding: embedding.length > 0 ? embedding : undefined,
-    });
-    const saved = await this.knowledgeRepo.save(knowledge);
-    this.logger.log(`Knowledge added to bot ${botId}: ${saved.id}`);
+  /** Creates one row per chunk — content over the chunk size threshold is split with overlap. */
+  async create(botId: string, dto: CreateKnowledgeDto): Promise<Knowledge[]> {
+    const { provider, apiKey } = await this.botService.getEmbeddingCredentials(botId);
+    const pieces =
+      dto.content.length > DEFAULT_CHUNK_SIZE
+        ? chunkText(dto.content, {
+            size: DEFAULT_CHUNK_SIZE,
+            overlap: DEFAULT_CHUNK_OVERLAP,
+          })
+        : [dto.content.trim()];
+
+    return this.saveChunks(botId, provider, apiKey, pieces);
+  }
+
+  private async saveChunks(
+    botId: string,
+    provider: AiProvider,
+    apiKey: string,
+    pieces: string[],
+  ): Promise<Knowledge[]> {
+    const saved: Knowledge[] = [];
+    for (const content of pieces) {
+      const embedding = await this.aiService.generateEmbedding(provider, apiKey, content);
+      const knowledge = this.knowledgeRepo.create({
+        botId,
+        content,
+        embedding: embedding.length > 0 ? embedding : undefined,
+      });
+      saved.push(await this.knowledgeRepo.save(knowledge));
+    }
+    this.logger.log(
+      `Knowledge added to bot ${botId}: ${saved.length} chunk(s)`,
+    );
     return saved;
   }
 
@@ -33,7 +76,12 @@ export class KnowledgeService {
     botId: string,
     page = 1,
     limit = 20,
-  ): Promise<{ data: Knowledge[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    data: Knowledge[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const [data, total] = await this.knowledgeRepo.findAndCount({
       where: { botId },
       order: { createdAt: 'DESC' },
@@ -85,13 +133,19 @@ export class KnowledgeService {
       throw new ForbiddenException('Access denied');
     }
     await this.knowledgeRepo.remove(knowledge);
-    this.logger.log(`Knowledge deleted (with owner check): ${id} by user ${userId}`);
+    this.logger.log(
+      `Knowledge deleted (with owner check): ${id} by user ${userId}`,
+    );
   }
 
   /**
    * Update with ownership verification.
    */
-  async updateWithOwnerCheck(id: string, userId: string, dto: UpdateKnowledgeDto): Promise<Knowledge> {
+  async updateWithOwnerCheck(
+    id: string,
+    userId: string,
+    dto: UpdateKnowledgeDto,
+  ): Promise<Knowledge> {
     const knowledge = await this.knowledgeRepo.findOne({
       where: { id },
       relations: ['bot'],
@@ -104,7 +158,9 @@ export class KnowledgeService {
     }
     knowledge.content = dto.content;
     const updated = await this.knowledgeRepo.save(knowledge);
-    this.logger.log(`Knowledge updated (with owner check): ${id} by user ${userId}`);
+    this.logger.log(
+      `Knowledge updated (with owner check): ${id} by user ${userId}`,
+    );
     return updated;
   }
 
@@ -124,9 +180,10 @@ export class KnowledgeService {
       return chunks.map((c) => c.content).join('\n\n');
     }
 
+    const { provider, apiKey } = await this.botService.getEmbeddingCredentials(botId);
     try {
-      const userEmbedding = await this.aiService.generateEmbedding(userMessage);
-      
+      const userEmbedding = await this.aiService.generateEmbedding(provider, apiKey, userMessage);
+
       // If embedding fails (e.g. 404 or empty), fall back to recent chunks
       if (userEmbedding.length === 0) {
         this.logger.warn('Embedding failed, falling back to recent chunks');
@@ -149,11 +206,12 @@ export class KnowledgeService {
           content: c.content,
           score: this.cosineSimilarity(userEmbedding, c.embedding),
         }))
+        .filter((c) => c.score >= MIN_RELEVANCE_SCORE) // drop weakly-related chunks rather than forcing them into the prompt
         .sort((a, b) => b.score - a.score)
         .slice(0, 5); // Take top 5 most relevant chunks
 
       if (relevantChunks.length === 0) {
-        // Fallback to recent if no embeddings found
+        // Nothing cleared the relevance floor — let the caller fall back to the "no answer" response
         return '';
       }
 
@@ -185,49 +243,36 @@ export class KnowledgeService {
   async addKnowledgeFromPdf(botId: string, buffer: Buffer): Promise<void> {
     try {
       this.logger.log('Starting PDF extraction...');
-      
+
       const parser = new PDFParse({ data: buffer });
       const result = await parser.getText();
       const text = result.text;
-      
+
       if (!text) {
         this.logger.warn('PDF extraction returned no text');
         return;
       }
-      
-      // Clean up text
-      const cleanText = text.replace(/\s+/g, ' ').trim();
-      
-      // Split into ~2000 character chunks
-      const chunks = this.chunkText(cleanText, 2000);
-      
-      for (const content of chunks) {
-        if (content.length > 10) { // skip tiny fragments
-          await this.create(botId, { content });
-        }
-      }
-      this.logger.log(`Processed PDF for bot ${botId}: ${chunks.length} chunks created`);
+
+      // Collapse runs of horizontal whitespace but keep paragraph breaks — the
+      // chunker uses blank lines to find good split points.
+      const cleanText = text
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+      const chunks = chunkText(cleanText, {
+        size: DEFAULT_CHUNK_SIZE,
+        overlap: DEFAULT_CHUNK_OVERLAP,
+      });
+
+      const { provider, apiKey } = await this.botService.getEmbeddingCredentials(botId);
+      await this.saveChunks(botId, provider, apiKey, chunks);
+      this.logger.log(
+        `Processed PDF for bot ${botId}: ${chunks.length} chunks created`,
+      );
     } catch (err) {
       this.logger.error(`PDF Processing error: ${err.message}`, err.stack);
       throw new Error(`Failed to process PDF file: ${err.message}`);
     }
-  }
-
-  private chunkText(text: string, size: number): string[] {
-    const chunks: string[] = [];
-    let i = 0;
-    while (i < text.length) {
-      // Try to find a good breaking point (period or newline) near the size
-      let end = i + size;
-      if (end < text.length) {
-        const lastPeriod = text.lastIndexOf('. ', end);
-        if (lastPeriod > i + size * 0.8) {
-          end = lastPeriod + 1;
-        }
-      }
-      chunks.push(text.substring(i, end).trim());
-      i = end;
-    }
-    return chunks;
   }
 }

@@ -1,4 +1,5 @@
-import { IsString, MinLength, IsOptional, IsNumber } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsNumber, IsEnum, IsBoolean } from 'class-validator';
+import { AiProvider } from '../../ai/ai-provider.enum';
 
 export class CreateBotDto {
   @IsString()
@@ -27,6 +28,44 @@ export class CreateBotDto {
 }
 
 export class UpdateBotDto {
+  // BYOK credentials — write-only. An empty string clears the stored value,
+  // omitting the field entirely leaves it untouched (standard PATCH semantics).
+  @IsEnum(AiProvider)
+  @IsOptional()
+  aiProvider?: AiProvider;
+
+  @IsString()
+  @IsOptional()
+  aiApiKey?: string;
+
+  @IsEnum(AiProvider)
+  @IsOptional()
+  embeddingProvider?: AiProvider;
+
+  @IsString()
+  @IsOptional()
+  embeddingApiKey?: string;
+
+  @IsString()
+  @IsOptional()
+  hubspotAccessToken?: string;
+
+  @IsString()
+  @IsOptional()
+  vapiPublicKey?: string;
+
+  @IsString()
+  @IsOptional()
+  vapiAssistantId?: string;
+
+  @IsString()
+  @IsOptional()
+  vapiWebhookSecret?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  humanHandoffEnabled?: boolean;
+
   @IsString()
   @MinLength(1)
   @IsOptional()
