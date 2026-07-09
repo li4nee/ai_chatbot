@@ -13,6 +13,32 @@ export interface VoiceConfig {
   vapiWebhookSecret: string | null;
 }
 
+/**
+ * class-transformer's plainToInstance (used by the global ValidationPipe with
+ * transform:true) sets every declared DTO field as an own property, `undefined`
+ * for whatever wasn't in the request body — not merely absent. Object.assign
+ * would happily copy those `undefined`s onto the entity, blanking out fields
+ * the caller never touched in the object we return (TypeORM itself correctly
+ * skips `undefined` columns when persisting, so this never corrupts the DB —
+ * only the in-memory entity we hand back).
+ */
+function pickDefined<T extends object>(obj: T): Partial<T> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+type EncryptedFieldName =
+  | 'aiApiKeyEncrypted'
+  | 'embeddingApiKeyEncrypted'
+  | 'hubspotAccessTokenEncrypted'
+  | 'vapiWebhookSecretEncrypted';
+
+export interface SafeBot extends Omit<Bot, EncryptedFieldName> {
+  hasAiApiKey: boolean;
+  hasEmbeddingApiKey: boolean;
+  hasHubspotAccessToken: boolean;
+  hasVapiWebhookSecret: boolean;
+}
+
 @Injectable()
 export class BotService {
   private readonly logger = new Logger(BotService.name);
@@ -23,7 +49,7 @@ export class BotService {
     private encryptionService: EncryptionService,
   ) {}
 
-  async create(userId: string, dto: CreateBotDto): Promise<Bot> {
+  async create(userId: string, dto: CreateBotDto): Promise<SafeBot> {
     const bot = this.botRepo.create({
       ...dto,
       userId,
@@ -31,7 +57,13 @@ export class BotService {
     });
     const saved = await this.botRepo.save(bot);
     this.logger.log(`Bot created: ${saved.id} by user ${userId}`);
-    return saved;
+    return this.toSafeBot(saved);
+  }
+
+  /** Bot IDs owned by a user — for services that need to scope a query to "this user's bots" without hand-rolling a join. */
+  async findOwnedBotIds(userId: string): Promise<string[]> {
+    const bots = await this.botRepo.find({ where: { userId }, select: ['id'] });
+    return bots.map((b) => b.id);
   }
 
   /** Paginated bot list for a user */
@@ -61,11 +93,11 @@ export class BotService {
   }
 
   /** Update bot settings. BYOK credential fields are encrypted before storage; an empty string clears the stored credential, omitting the field leaves it untouched. */
-  async update(id: string, userId: string, dto: UpdateBotDto): Promise<Bot> {
-    const bot = await this.findOne(id, userId);
+  async update(id: string, userId: string, dto: UpdateBotDto): Promise<SafeBot> {
+    const bot = await this.findOneWithCredentials(id, userId);
     const { aiApiKey, hubspotAccessToken, vapiWebhookSecret, embeddingApiKey, ...rest } = dto;
 
-    Object.assign(bot, rest);
+    Object.assign(bot, pickDefined(rest));
 
     if (aiApiKey !== undefined) {
       bot.aiApiKeyEncrypted = aiApiKey ? this.encryptionService.encrypt(aiApiKey) : null;
@@ -86,16 +118,67 @@ export class BotService {
 
     const updated = await this.botRepo.save(bot);
     this.logger.log(`Bot updated: ${id}`);
-    return updated;
+    return this.toSafeBot(updated);
   }
 
   /** Regenerate API key for a bot */
-  async rotateApiKey(id: string, userId: string): Promise<Bot> {
-    const bot = await this.findOne(id, userId);
+  async rotateApiKey(id: string, userId: string): Promise<SafeBot> {
+    const bot = await this.findOneWithCredentials(id, userId);
     bot.apiKey = `bot_${uuidv4().replace(/-/g, '')}`;
     const updated = await this.botRepo.save(bot);
     this.logger.warn(`API key rotated for bot: ${id} by user ${userId}`);
-    return updated;
+    return this.toSafeBot(updated);
+  }
+
+  /** Bot for the admin UI's GET /bots/:id — credential presence flags, never the encrypted values. */
+  async getSafeBotForOwner(id: string, userId: string): Promise<SafeBot> {
+    const bot = await this.findOneWithCredentials(id, userId);
+    return this.toSafeBot(bot);
+  }
+
+  /**
+   * Like findOne, but with the encrypted credential columns selected — needed
+   * whenever we're about to save the entity and return a safe view of it,
+   * since select:false columns not touched by this call would otherwise read
+   * as undefined (and `toSafeBot` would report them as "not configured" even
+   * when a value from a previous update is still sitting in the DB).
+   */
+  private async findOneWithCredentials(id: string, userId: string): Promise<Bot> {
+    const bot = await this.botRepo
+      .createQueryBuilder('bot')
+      .addSelect([
+        'bot.aiApiKeyEncrypted',
+        'bot.embeddingApiKeyEncrypted',
+        'bot.hubspotAccessTokenEncrypted',
+        'bot.vapiWebhookSecretEncrypted',
+      ])
+      .where('bot.id = :id', { id })
+      .getOne();
+    if (!bot) {
+      throw new NotFoundException('Bot not found');
+    }
+    if (bot.userId !== userId) {
+      throw new ForbiddenException('Access denied');
+    }
+    return bot;
+  }
+
+  /** Strips encrypted columns from a bot that has them loaded, replacing them with presence-only flags. */
+  private toSafeBot(bot: Bot): SafeBot {
+    const {
+      aiApiKeyEncrypted,
+      embeddingApiKeyEncrypted,
+      hubspotAccessTokenEncrypted,
+      vapiWebhookSecretEncrypted,
+      ...rest
+    } = bot;
+    return {
+      ...rest,
+      hasAiApiKey: !!aiApiKeyEncrypted,
+      hasEmbeddingApiKey: !!embeddingApiKeyEncrypted,
+      hasHubspotAccessToken: !!hubspotAccessTokenEncrypted,
+      hasVapiWebhookSecret: !!vapiWebhookSecretEncrypted,
+    };
   }
 
   async remove(id: string, userId: string): Promise<void> {
@@ -175,36 +258,6 @@ export class BotService {
       vapiWebhookSecret: bot?.vapiWebhookSecretEncrypted
         ? this.encryptionService.decrypt(bot.vapiWebhookSecretEncrypted)
         : null,
-    };
-  }
-
-  /** Presence-only flags for the admin UI — never exposes the encrypted values themselves. */
-  async getCredentialFlags(botId: string): Promise<{
-    aiProvider: AiProvider;
-    hasAiApiKey: boolean;
-    embeddingProvider: AiProvider | null;
-    hasEmbeddingApiKey: boolean;
-    hasHubspotAccessToken: boolean;
-    hasVapiWebhookSecret: boolean;
-  }> {
-    const bot = await this.botRepo
-      .createQueryBuilder('bot')
-      .addSelect([
-        'bot.aiApiKeyEncrypted',
-        'bot.embeddingApiKeyEncrypted',
-        'bot.hubspotAccessTokenEncrypted',
-        'bot.vapiWebhookSecretEncrypted',
-      ])
-      .where('bot.id = :botId', { botId })
-      .getOne();
-
-    return {
-      aiProvider: bot?.aiProvider ?? AiProvider.GEMINI,
-      hasAiApiKey: !!bot?.aiApiKeyEncrypted,
-      embeddingProvider: bot?.embeddingProvider ?? null,
-      hasEmbeddingApiKey: !!bot?.embeddingApiKeyEncrypted,
-      hasHubspotAccessToken: !!bot?.hubspotAccessTokenEncrypted,
-      hasVapiWebhookSecret: !!bot?.vapiWebhookSecretEncrypted,
     };
   }
 

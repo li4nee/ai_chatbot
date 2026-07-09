@@ -35,9 +35,29 @@ import { CommonModule } from './common/common.module';
     // Enables @Cron() jobs (used for dead-letter retry of failed CRM syncs)
     ScheduleModule.forRoot(),
 
-    // Rate limiting: 20 requests per 60 seconds per IP
+    // Rate limiting. `default` is a generic per-IP backstop (unused unless a
+    // route opts in). Chat uses two purpose-built tiers instead — see
+    // ChatController.chat: `perVisitor` stops one visitor from spamming a
+    // bot, `perBot` is a much higher ceiling across all of that bot's
+    // concurrent visitors, so 100 people chatting with the same bot don't
+    // collide in one shared bucket.
     ThrottlerModule.forRoot({
-      throttlers: [{ ttl: 60000, limit: 20 }],
+      throttlers: [
+        { ttl: 60000, limit: 20 },
+        {
+          name: 'perVisitor',
+          ttl: 60000,
+          limit: 20,
+          getTracker: (req: Record<string, any>) =>
+            `${req.bot?.id}:${req.body?.sessionId || req.query?.sessionId || req.ip}`,
+        },
+        {
+          name: 'perBot',
+          ttl: 60000,
+          limit: 500,
+          getTracker: (req: Record<string, any>) => req.bot?.id || req.ip,
+        },
+      ],
     }),
 
     // PostgreSQL connection

@@ -4,23 +4,30 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { register } = useAuth();
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
     setLoading(true);
     try {
-      await login(email, password);
+      await register(email, password);
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -29,8 +36,8 @@ export default function LoginPage() {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1>Welcome back</h1>
-        <p className="subtitle">Sign in to manage your chatbots</p>
+        <h1>Create your account</h1>
+        <p className="subtitle">Start building your AI chatbots</p>
 
         {error && <div className="alert alert-error">{error}</div>}
 
@@ -53,20 +60,32 @@ export default function LoginPage() {
               id="password"
               type="password"
               className="form-input"
-              placeholder="••••••••"
+              placeholder="At least 6 characters"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              minLength={6}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="confirmPassword">Confirm Password</label>
+            <input
+              id="confirmPassword"
+              type="password"
+              className="form-input"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               required
             />
           </div>
           <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Creating account...' : 'Sign Up'}
           </button>
         </form>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, fontSize: 13 }}>
-          <Link href="/forgot-password">Forgot password?</Link>
-          <Link href="/register">Don&apos;t have an account? Sign up</Link>
+        <div style={{ marginTop: 20, fontSize: 13 }}>
+          <Link href="/login">Already have an account? Sign in</Link>
         </div>
       </div>
     </div>

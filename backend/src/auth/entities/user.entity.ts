@@ -30,6 +30,14 @@ export class User {
   })
   role: UserRole;
 
+  // Password reset — a SHA-256 hash of the emailed token is stored, never the
+  // raw token, so a DB leak alone can't be used to reset anyone's password.
+  @Column({ type: 'text', nullable: true, select: false })
+  resetPasswordTokenHash: string | null;
+
+  @Column({ type: 'timestamp', nullable: true, select: false })
+  resetPasswordExpiresAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

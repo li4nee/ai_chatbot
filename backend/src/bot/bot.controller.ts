@@ -39,9 +39,7 @@ export class BotController {
 
   @Get(':id')
   async findOne(@Request() req, @Param('id') id: string) {
-    const bot = await this.botService.findOne(id, req.user.id);
-    const credentialFlags = await this.botService.getCredentialFlags(id);
-    return { ...bot, ...credentialFlags };
+    return this.botService.getSafeBotForOwner(id, req.user.id);
   }
 
   @Patch(':id')
