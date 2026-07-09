@@ -9,10 +9,12 @@ import { JwtStrategy } from './jwt.strategy';
 import { User } from './entities/user.entity';
 import { Bot } from '../bot/entities/bot.entity';
 import { ApiKeyGuard } from './guards/api-key.guard';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([User, Bot]),
+    EmailModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

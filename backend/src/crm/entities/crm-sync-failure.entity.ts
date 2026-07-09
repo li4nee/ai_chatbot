@@ -28,7 +28,7 @@ export class CrmSyncFailure {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'uuid' })
   botId: string;
 
   @Column({ type: 'enum', enum: CrmSyncType })

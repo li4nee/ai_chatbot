@@ -38,9 +38,9 @@ export class Bot {
   @Column({ unique: true })
   apiKey: string;
 
-  // Future: live agent handoff support
+  // Opt-in per bot — lets visitors request a human agent in the widget.
   @Column({ default: false })
-  isHumanActive: boolean;
+  humanHandoffEnabled: boolean;
 
   // ── BYOK credentials ──
   // Secret values below are AES-256-GCM encrypted (see EncryptionService) and

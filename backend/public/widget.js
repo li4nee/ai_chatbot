@@ -24,6 +24,21 @@
   let vapi = null;
   let isCalling = false;
 
+  // ─── Live agent handoff state ───────────────────────────────────
+  let handoffStatus = 'BOT';
+  let pollInterval = null;
+  let lastMessageTime = new Date().toISOString();
+  const renderedMessageIds = new Set();
+
+  function generateSessionId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
   // ─── Styles ────────────────────────────────────────────────────
   const styles = document.createElement('style');
   styles.textContent = `
@@ -240,6 +255,35 @@
       z-index: 10;
     }
     #chatbot-call-status.visible { display: block; }
+
+    #chatbot-status-banner {
+      background: #252547;
+      color: #94a3b8;
+      font-size: 12px;
+      text-align: center;
+      padding: 6px 12px;
+      display: none;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    #chatbot-status-banner.visible { display: block; }
+
+    #chatbot-handoff-bar {
+      padding: 8px 16px;
+      background: #1a1a2e;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      text-align: center;
+    }
+    #chatbot-request-human {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #94a3b8;
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #chatbot-request-human:hover { border-color: var(--chatbot-primary); color: #e2e8f0; }
+    #chatbot-request-human:disabled { opacity: 0.6; cursor: not-allowed; }
   `;
   document.head.appendChild(styles);
 
@@ -290,9 +334,14 @@
           </button>
         </div>
         <div id="chatbot-call-status">Live Call in Progress...</div>
+        <div id="chatbot-status-banner"></div>
         <div id="chatbot-messages">
           <div class="chatbot-welcome">${botConfig.welcomeMessage}</div>
         </div>
+        ${botConfig.humanHandoffEnabled ? `
+        <div id="chatbot-handoff-bar">
+          <button id="chatbot-request-human">🙋 Talk to a human</button>
+        </div>` : ''}
         <div id="chatbot-input-area">
           <input id="chatbot-input" type="text" placeholder="Type your message..." autocomplete="off" />
           <button id="chatbot-send">
@@ -309,6 +358,94 @@
     const sendBtn = document.getElementById('chatbot-send');
     const callBtn = document.getElementById('chatbot-call-btn');
     const callStatus = document.getElementById('chatbot-call-status');
+    const statusBanner = document.getElementById('chatbot-status-banner');
+    const requestHumanBtn = document.getElementById('chatbot-request-human');
+
+    const updateHandoffStatus = (status) => {
+      if (!status || status === handoffStatus) return;
+      handoffStatus = status;
+      if (status === 'NEEDS_HUMAN') {
+        statusBanner.textContent = '⏳ Waiting for a human agent...';
+        statusBanner.classList.add('visible');
+      } else if (status === 'HUMAN') {
+        statusBanner.textContent = '🧑 You\'re chatting with a team member';
+        statusBanner.classList.add('visible');
+      } else {
+        statusBanner.classList.remove('visible');
+      }
+      const handoffBar = document.getElementById('chatbot-handoff-bar');
+      if (handoffBar) {
+        handoffBar.style.display = status === 'BOT' ? '' : 'none';
+      }
+      if (requestHumanBtn && status === 'BOT') {
+        // Reset in case it was left mid-request (disabled/"Connecting...")
+        // from before this conversation was handed off.
+        requestHumanBtn.disabled = false;
+        requestHumanBtn.textContent = '🙋 Talk to a human';
+      }
+    };
+
+    const pollForUpdates = async () => {
+      if (!sessionId) return;
+      try {
+        const res = await fetch(
+          `${API_URL}/chat/messages?sessionId=${encodeURIComponent(sessionId)}&after=${encodeURIComponent(lastMessageTime)}`,
+          { headers: { 'x-bot-api-key': API_KEY } },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        updateHandoffStatus(data.status);
+        (data.messages || []).forEach((m) => {
+          lastMessageTime = m.createdAt;
+          if (renderedMessageIds.has(m.id)) return;
+          renderedMessageIds.add(m.id);
+          if (m.role === 'agent') addMessage(m.content, 'bot');
+        });
+      } catch (err) {
+        // ignore transient polling errors
+      }
+    };
+
+    const startPolling = () => {
+      if (pollInterval || !sessionId) return;
+      pollInterval = setInterval(pollForUpdates, 4000);
+    };
+
+    const stopPolling = () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
+
+    if (requestHumanBtn) {
+      requestHumanBtn.onclick = async () => {
+        if (!sessionId) {
+          sessionId = generateSessionId();
+          localStorage.setItem('chatbot_session_' + API_KEY, sessionId);
+        }
+        requestHumanBtn.disabled = true;
+        requestHumanBtn.textContent = 'Connecting...';
+        try {
+          const res = await fetch(`${API_URL}/chat/request-human`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-bot-api-key': API_KEY },
+            body: JSON.stringify({ sessionId }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            updateHandoffStatus(data.status);
+            startPolling();
+          } else {
+            requestHumanBtn.disabled = false;
+            requestHumanBtn.textContent = '🙋 Talk to a human';
+          }
+        } catch (err) {
+          requestHumanBtn.disabled = false;
+          requestHumanBtn.textContent = '🙋 Talk to a human';
+        }
+      };
+    }
 
     // Voice is BYOK — only available when the bot has configured its own
     // Vapi public key + assistant ID (see /chat/config).
@@ -367,7 +504,12 @@
       isOpen = !isOpen;
       bubble.classList.toggle('open', isOpen);
       chatWindow.classList.toggle('visible', isOpen);
-      if (isOpen) input.focus();
+      if (isOpen) {
+        input.focus();
+        startPolling();
+      } else {
+        stopPolling();
+      }
     };
 
     const linkify = (text) => {
@@ -436,8 +578,10 @@
         if (data.sessionId) {
           sessionId = data.sessionId;
           localStorage.setItem('chatbot_session_' + API_KEY, sessionId);
+          startPolling();
         }
-        addMessage(data.reply, 'bot');
+        updateHandoffStatus(data.status);
+        if (data.reply) addMessage(data.reply, 'bot');
       } catch (err) {
         removeTyping();
         addMessage('Something went wrong. Please try again.', 'bot');

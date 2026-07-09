@@ -1,4 +1,4 @@
-import { IsString, MinLength, IsOptional, IsNumber, IsEnum } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsNumber, IsEnum, IsBoolean } from 'class-validator';
 import { AiProvider } from '../../ai/ai-provider.enum';
 
 export class CreateBotDto {
@@ -61,6 +61,10 @@ export class UpdateBotDto {
   @IsString()
   @IsOptional()
   vapiWebhookSecret?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  humanHandoffEnabled?: boolean;
 
   @IsString()
   @MinLength(1)

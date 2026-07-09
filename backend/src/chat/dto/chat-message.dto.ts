@@ -10,3 +10,9 @@ export class ChatMessageDto {
   @IsOptional()
   sessionId?: string;
 }
+
+export class RequestHumanDto {
+  @IsString()
+  @MinLength(1)
+  sessionId: string;
+}

@@ -14,7 +14,7 @@ interface Bot {
   pricePer1kTokens: number | string;
   pricePerMessage: number | string;
   apiKey: string;
-  isHumanActive: boolean;
+  humanHandoffEnabled: boolean;
   createdAt: string;
   vapiPublicKey: string | null;
   vapiAssistantId: string | null;
@@ -211,6 +211,22 @@ export default function BotDetailPage() {
       setBot(data);
       setEditingPricing(false);
       showSuccess('Pricing settings updated');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const toggleHandoff = async () => {
+    if (!bot) return;
+    try {
+      await api(`/bots/${botId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ humanHandoffEnabled: !bot.humanHandoffEnabled }),
+        token: token!,
+      });
+      const wasEnabled = bot.humanHandoffEnabled;
+      await fetchBot();
+      showSuccess(wasEnabled ? 'Live agent handoff disabled' : 'Live agent handoff enabled');
     } catch (err: any) {
       setError(err.message);
     }
@@ -662,6 +678,29 @@ export default function BotDetailPage() {
                   🔄 Rotate
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Agent Handoff */}
+        <div className="section">
+          <div className="section-title">Live Agent Handoff</div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                  {bot.humanHandoffEnabled ? 'Enabled' : 'Disabled'}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {bot.humanHandoffEnabled
+                    ? 'Visitors can request a human agent from the widget. Take over conversations from the '
+                    : 'Turn this on to let visitors request a human agent from the widget. Manage handoffs from the '}
+                  <Link href={`/bots/${botId}/conversations`}>Conversations page</Link>.
+                </div>
+              </div>
+              <button className="btn btn-outline btn-sm" onClick={toggleHandoff}>
+                {bot.humanHandoffEnabled ? 'Disable' : 'Enable'}
+              </button>
             </div>
           </div>
         </div>

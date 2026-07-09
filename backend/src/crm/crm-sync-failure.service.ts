@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   CrmSyncFailure,
@@ -9,8 +9,14 @@ import {
 } from './entities/crm-sync-failure.entity';
 import { HubSpotService } from './hubspot.service';
 import { BotService } from '../bot/bot.service';
+import { UserRole } from '../auth/entities/user.entity';
 
 const MAX_ATTEMPTS = 5;
+
+export interface RequestingUser {
+  id: string;
+  role: UserRole;
+}
 
 @Injectable()
 export class CrmSyncFailureService {
@@ -41,7 +47,9 @@ export class CrmSyncFailureService {
     return saved;
   }
 
+  /** Scoped to the requesting user's own bots — SUPER_ADMIN sees every tenant's failures. */
   async findAll(
+    requestingUser: RequestingUser,
     status?: CrmSyncStatus,
     page = 1,
     limit = 20,
@@ -51,12 +59,23 @@ export class CrmSyncFailureService {
     page: number;
     limit: number;
   }> {
+    const where: { status?: CrmSyncStatus; botId?: ReturnType<typeof In> } = status ? { status } : {};
+
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      const botIds = await this.botService.findOwnedBotIds(requestingUser.id);
+      if (botIds.length === 0) {
+        return { data: [], total: 0, page, limit };
+      }
+      where.botId = In(botIds);
+    }
+
     const [data, total] = await this.failureRepo.findAndCount({
-      where: status ? { status } : {},
+      where,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
+
     return { data, total, page, limit };
   }
 
@@ -65,11 +84,35 @@ export class CrmSyncFailureService {
    * lookups are by email, so re-running a CONTACT_SYNC that already partially
    * succeeded just finds the existing contact rather than duplicating it.
    */
-  async retryOne(id: string): Promise<CrmSyncFailure> {
+  async retryOne(id: string, requestingUser: RequestingUser): Promise<CrmSyncFailure> {
     const failure = await this.failureRepo.findOne({ where: { id } });
     if (!failure) {
       throw new NotFoundException('Sync failure not found');
     }
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      // Throws NotFoundException/ForbiddenException if this bot isn't the requester's.
+      await this.botService.findOne(failure.botId, requestingUser.id);
+    }
+    return this.attemptRetry(failure);
+  }
+
+  /** Sweeps pending dead-letters on a schedule so failures self-heal without manual action. */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async retryPending(): Promise<void> {
+    const pending = await this.failureRepo.find({
+      where: { status: CrmSyncStatus.PENDING },
+      take: 50,
+    });
+    for (const failure of pending) {
+      await this.attemptRetry(failure).catch((error) =>
+        this.logger.error(
+          `Retry sweep failed for ${failure.id}: ${error.message}`,
+        ),
+      );
+    }
+  }
+
+  private async attemptRetry(failure: CrmSyncFailure): Promise<CrmSyncFailure> {
     if (failure.status === CrmSyncStatus.RESOLVED) {
       return failure;
     }
@@ -87,22 +130,6 @@ export class CrmSyncFailureService {
           : CrmSyncStatus.PENDING;
     }
     return this.failureRepo.save(failure);
-  }
-
-  /** Sweeps pending dead-letters on a schedule so failures self-heal without manual action. */
-  @Cron(CronExpression.EVERY_5_MINUTES)
-  async retryPending(): Promise<void> {
-    const pending = await this.failureRepo.find({
-      where: { status: CrmSyncStatus.PENDING },
-      take: 50,
-    });
-    for (const failure of pending) {
-      await this.retryOne(failure.id).catch((error) =>
-        this.logger.error(
-          `Retry sweep failed for ${failure.id}: ${error.message}`,
-        ),
-      );
-    }
   }
 
   private async performSync(failure: CrmSyncFailure): Promise<void> {

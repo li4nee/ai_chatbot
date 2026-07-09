@@ -5,16 +5,18 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Conversation } from './conversation.entity';
 
 export enum MessageRole {
   USER = 'user',
   BOT = 'bot',
-  AGENT = 'agent', // Future: live agent handoff
+  AGENT = 'agent', // sent by a human agent during live handoff
 }
 
 @Entity('messages')
+@Index(['conversationId', 'createdAt']) // getMessagesSince/getTranscript are polled every ~4s
 export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;
