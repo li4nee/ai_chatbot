@@ -23,6 +23,7 @@ import { CrmModule } from './crm/crm.module';
 import { CrmSyncFailure } from './crm/entities/crm-sync-failure.entity';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CommonModule } from './common/common.module';
+import { perVisitorTracker, perBotTracker } from './common/throttler-trackers';
 
 @Module({
   imports: [
@@ -48,14 +49,13 @@ import { CommonModule } from './common/common.module';
           name: 'perVisitor',
           ttl: 60000,
           limit: 20,
-          getTracker: (req: Record<string, any>) =>
-            `${req.bot?.id}:${req.body?.sessionId || req.query?.sessionId || req.ip}`,
+          getTracker: perVisitorTracker,
         },
         {
           name: 'perBot',
           ttl: 60000,
           limit: 500,
-          getTracker: (req: Record<string, any>) => req.bot?.id || req.ip,
+          getTracker: perBotTracker,
         },
       ],
     }),

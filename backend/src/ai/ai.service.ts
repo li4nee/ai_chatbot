@@ -1,29 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  ChatGoogleGenerativeAI,
-  GoogleGenerativeAIEmbeddings,
-} from '@langchain/google-genai';
-import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
-import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatGroq } from '@langchain/groq';
-import { ChatMistralAI, MistralAIEmbeddings } from '@langchain/mistralai';
-import {
   SystemMessage,
   HumanMessage,
   AIMessage,
   BaseMessage,
 } from '@langchain/core/messages';
 import { AiProvider } from './ai-provider.enum';
+import { AiClientFactory, ProviderClients } from './ai-client.factory';
 
 const MAX_CACHED_CLIENTS = 200;
-
-type ChatModel = ChatGoogleGenerativeAI | ChatOpenAI | ChatAnthropic | ChatGroq | ChatMistralAI;
-type EmbeddingsModel = GoogleGenerativeAIEmbeddings | OpenAIEmbeddings | MistralAIEmbeddings;
-
-interface ProviderClients {
-  chatModel: ChatModel;
-  embeddingsModel?: EmbeddingsModel;
-}
 
 /**
  * AI Service using LangChain — BYOK across five providers. Every call takes the
@@ -31,88 +16,22 @@ interface ProviderClients {
  * per provider+key so repeated calls from the same bot don't rebuild the
  * LangChain client each time; keying by provider+key (not bot id) means key
  * rotation "just works" — a new key is a cache miss and the old entry ages out.
+ * Actual client construction is delegated to AiClientFactory so this class's
+ * caching/prompt/error-handling logic stays testable without a real LLM SDK.
  */
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly clientCache = new Map<string, ProviderClients>();
 
-  private buildClient(provider: AiProvider, apiKey: string): ProviderClients {
-    switch (provider) {
-      case AiProvider.GEMINI:
-        return {
-          chatModel: new ChatGoogleGenerativeAI({
-            apiKey,
-            modelName: 'gemini-2.5-flash',
-            temperature: 0.2,
-            maxOutputTokens: 1024,
-            maxRetries: 0,
-          }),
-          embeddingsModel: new GoogleGenerativeAIEmbeddings({
-            apiKey,
-            modelName: 'gemini-embedding-001',
-          }),
-        };
-      case AiProvider.OPENAI:
-        return {
-          chatModel: new ChatOpenAI({
-            apiKey,
-            model: 'gpt-4o-mini',
-            temperature: 0.2,
-            maxTokens: 1024,
-            maxRetries: 0,
-          }),
-          embeddingsModel: new OpenAIEmbeddings({
-            apiKey,
-            model: 'text-embedding-3-small',
-          }),
-        };
-      case AiProvider.ANTHROPIC:
-        return {
-          chatModel: new ChatAnthropic({
-            apiKey,
-            model: 'claude-3-5-haiku-20241022',
-            temperature: 0.2,
-            maxTokens: 1024,
-            maxRetries: 0,
-          }),
-          // No embeddings API — callers must resolve an embeddings-capable
-          // provider/key separately (see BotService.getEmbeddingCredentials).
-        };
-      case AiProvider.GROQ:
-        return {
-          chatModel: new ChatGroq({
-            apiKey,
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0.2,
-            maxTokens: 1024,
-            maxRetries: 0,
-          }),
-          // No embeddings API, same as Anthropic.
-        };
-      case AiProvider.MISTRAL:
-        return {
-          chatModel: new ChatMistralAI({
-            apiKey,
-            model: 'mistral-small-latest',
-            temperature: 0.2,
-            maxTokens: 1024,
-            maxRetries: 0,
-          }),
-          embeddingsModel: new MistralAIEmbeddings({
-            apiKey,
-            model: 'mistral-embed',
-          }),
-        };
-    }
-  }
+  constructor(private aiClientFactory: AiClientFactory) {}
 
   private getOrCreateClient(provider: AiProvider, apiKey: string): ProviderClients {
     const cacheKey = `${provider}:${apiKey}`;
     const cached = this.clientCache.get(cacheKey);
     if (cached) return cached;
 
-    const clients = this.buildClient(provider, apiKey);
+    const clients = this.aiClientFactory.build(provider, apiKey);
     if (this.clientCache.size >= MAX_CACHED_CLIENTS) {
       const oldestKey = this.clientCache.keys().next().value;
       if (oldestKey) this.clientCache.delete(oldestKey);
