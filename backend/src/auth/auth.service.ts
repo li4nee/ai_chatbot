@@ -119,9 +119,8 @@ export class AuthService {
     if (!user) return;
 
     const token = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-    user.resetPasswordTokenHash = tokenHash;
+    user.resetPasswordTokenHash = this.hashResetToken(token);
     user.resetPasswordExpiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
     await this.usersRepo.save(user);
 
@@ -130,13 +129,15 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const tokenHash = this.hashResetToken(token);
 
-    const user = await this.usersRepo
-      .createQueryBuilder('user')
-      .addSelect(['user.resetPasswordTokenHash', 'user.resetPasswordExpiresAt'])
-      .where('user.resetPasswordTokenHash = :tokenHash', { tokenHash })
-      .getOne();
+    // An explicit `select` still returns select:false columns — filtering by
+    // one via plain `where` works the same as any other column too, so this
+    // no longer needs a QueryBuilder.
+    const user = await this.usersRepo.findOne({
+      where: { resetPasswordTokenHash: tokenHash },
+      select: ['id', 'email', 'passwordHash', 'resetPasswordTokenHash', 'resetPasswordExpiresAt'],
+    });
 
     if (!user || !user.resetPasswordExpiresAt || user.resetPasswordExpiresAt < new Date()) {
       throw new UnauthorizedException('Invalid or expired reset token');
@@ -146,6 +147,11 @@ export class AuthService {
     user.resetPasswordTokenHash = null;
     user.resetPasswordExpiresAt = null;
     await this.usersRepo.save(user);
+  }
+
+  /** SHA-256 of a reset token — a fast, deterministic hash is fine here since the token itself is already high-entropy (crypto.randomBytes), unlike a user-chosen password. */
+  private hashResetToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
   }
 
   async findById(id: string): Promise<User | null> {

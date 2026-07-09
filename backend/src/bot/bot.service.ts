@@ -141,19 +141,36 @@ export class BotService {
    * whenever we're about to save the entity and return a safe view of it,
    * since select:false columns not touched by this call would otherwise read
    * as undefined (and `toSafeBot` would report them as "not configured" even
-   * when a value from a previous update is still sitting in the DB).
+   * when a value from a previous update is still sitting in the DB). An
+   * explicit `select` list still returns select:false columns — it's only the
+   * *default* wildcard select that skips them — so this needs every column,
+   * not just the encrypted ones.
    */
   private async findOneWithCredentials(id: string, userId: string): Promise<Bot> {
-    const bot = await this.botRepo
-      .createQueryBuilder('bot')
-      .addSelect([
-        'bot.aiApiKeyEncrypted',
-        'bot.embeddingApiKeyEncrypted',
-        'bot.hubspotAccessTokenEncrypted',
-        'bot.vapiWebhookSecretEncrypted',
-      ])
-      .where('bot.id = :id', { id })
-      .getOne();
+    const bot = await this.botRepo.findOne({
+      where: { id },
+      select: [
+        'id',
+        'name',
+        'displayName',
+        'themeColor',
+        'welcomeMessage',
+        'pricePer1kTokens',
+        'pricePerMessage',
+        'apiKey',
+        'humanHandoffEnabled',
+        'aiProvider',
+        'aiApiKeyEncrypted',
+        'embeddingProvider',
+        'embeddingApiKeyEncrypted',
+        'hubspotAccessTokenEncrypted',
+        'vapiPublicKey',
+        'vapiAssistantId',
+        'vapiWebhookSecretEncrypted',
+        'userId',
+        'createdAt',
+      ],
+    });
     if (!bot) {
       throw new NotFoundException('Bot not found');
     }
@@ -189,11 +206,10 @@ export class BotService {
 
   /** Decrypted chat provider + key for a bot — required for chat; throws if not configured (BYOK, no platform fallback). */
   async getChatCredentials(botId: string): Promise<{ provider: AiProvider; apiKey: string }> {
-    const bot = await this.botRepo
-      .createQueryBuilder('bot')
-      .addSelect('bot.aiApiKeyEncrypted')
-      .where('bot.id = :botId', { botId })
-      .getOne();
+    const bot = await this.botRepo.findOne({
+      where: { id: botId },
+      select: ['id', 'aiProvider', 'aiApiKeyEncrypted'],
+    });
 
     if (!bot?.aiApiKeyEncrypted) {
       throw new BadRequestException(
@@ -211,11 +227,10 @@ export class BotService {
    * is required and this throws if it hasn't been configured.
    */
   async getEmbeddingCredentials(botId: string): Promise<{ provider: AiProvider; apiKey: string }> {
-    const bot = await this.botRepo
-      .createQueryBuilder('bot')
-      .addSelect(['bot.aiApiKeyEncrypted', 'bot.embeddingApiKeyEncrypted'])
-      .where('bot.id = :botId', { botId })
-      .getOne();
+    const bot = await this.botRepo.findOne({
+      where: { id: botId },
+      select: ['id', 'aiProvider', 'aiApiKeyEncrypted', 'embeddingProvider', 'embeddingApiKeyEncrypted'],
+    });
 
     if (!bot) {
       throw new BadRequestException('Bot not found');
@@ -245,11 +260,10 @@ export class BotService {
   async getIntegrationCredentials(
     botId: string,
   ): Promise<{ hubspotAccessToken: string | null; vapiWebhookSecret: string | null }> {
-    const bot = await this.botRepo
-      .createQueryBuilder('bot')
-      .addSelect(['bot.hubspotAccessTokenEncrypted', 'bot.vapiWebhookSecretEncrypted'])
-      .where('bot.id = :botId', { botId })
-      .getOne();
+    const bot = await this.botRepo.findOne({
+      where: { id: botId },
+      select: ['id', 'hubspotAccessTokenEncrypted', 'vapiWebhookSecretEncrypted'],
+    });
 
     return {
       hubspotAccessToken: bot?.hubspotAccessTokenEncrypted
